@@ -1,11 +1,14 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+# Figure folder
+figures/
 
 # Other files and folders
 .settings/
+src/__pycache__/
+.DS_Store
+src/scripts/.ipynb_checkpoints/
+
+# Data folder
+data/
 
 # Executables
 *.swf
