@@ -6,6 +6,9 @@ figures/
 src/__pycache__/
 .DS_Store
 src/scripts/.ipynb_checkpoints/
+.idea/
+src/.idea/
+src/operators/__pycache__/
 
 # Data folder
 data/
