@@ -9,6 +9,7 @@ src/scripts/.ipynb_checkpoints/
 .idea/
 src/.idea/
 src/operators/__pycache__/
+src/notebooks/
 
 # Data folder
 data/
