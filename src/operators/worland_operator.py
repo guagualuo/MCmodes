@@ -2,9 +2,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as scsp
 from typing import Union, List, Dict, Tuple
+from numba import jit
 
-from polynomials import *
-from threeJ_integrals import gaunt_matrix, elsasser_matrix
+from operators.polynomials import *
+from operators.threeJ_integrals import gaunt_matrix, elsasser_matrix
 from utils import Timer
 
 
@@ -27,16 +28,17 @@ class WorlandTransform:
         self.operators['W'] = {}
         self.operators['divrW'] = {}
         self.operators['divrdiffrW'] = {}
+        self.operators['diff2rW'] = {}
         for l in range(m, maxnl):
             mat = worland(nr, l, r_grid)
             self.operators['W'][l] = mat
             self.operators['divrW'][l] = np.array(scsp.diags(1/r_grid) @ mat)
             self.operators['divrdiffrW'][l] = divrdiffrW(nr, l, r_grid)
+            self.operators['diff2rW'][l] = diff2rW(nr, l, r_grid)
 
-    def _compute_per_l_block(self, la, lg, beta_mode, beta_op, alpha_op, factor):
+    def _compute_per_l_block(self, la, lg, beta_mode, beta_op: SymOperatorBase, alpha_op: str, factor):
         """ compute single combination of la, lg """
-        beta_op = sym_operators(beta_op)
-        radial = beta_op(beta_mode.radial_expr, self.r_grid)
+        radial = beta_op.apply(beta_mode.radial_expr, self.r_grid)
         weight = scsp.diags(factor * self.weight * radial)
         return self.operators['W'][lg].T @ weight @ self.operators[alpha_op][la]
 
@@ -70,7 +72,7 @@ class WorlandTransform:
             sh_factor = elsasser_matrix(maxnl, m, lb, return_matrix=False)
 
             def factor_func(la, lb, lg): return la*(la+1)
-            terms = [('divr', 'W', factor_func)]
+            terms = [(SymDivr(), 'W', factor_func)]
             return self._compute_block(beta_mode, sh_factor, terms)
         else:
             dim = (maxnl - m) * nr
@@ -83,7 +85,7 @@ class WorlandTransform:
             sh_factor = elsasser_matrix(maxnl, m, lb, return_matrix=False)
 
             def factor_func(la, lb, lg): return lb * (lb + 1) * (-1) ** (la+lb+lg-1)
-            terms = [('divr', 'W', factor_func)]
+            terms = [(SymDivr(), 'W', factor_func)]
             return self._compute_block(beta_mode, sh_factor, terms)
         else:
             dim = (maxnl - m) * nr
@@ -98,8 +100,8 @@ class WorlandTransform:
 
             def factor_func1(la, lb, lg): return 0.5*l2(la)*(l2(la)-l2(lb)-l2(lg))
             def factor_func2(la, lb, lg): return 0.5*l2(lb)*(l2(la)-l2(lb)+l2(lg))
-            terms = [('divrdiffr', 'divrW', factor_func1),
-                     ('divr', 'divrdiffrW', factor_func2)]
+            terms = [(SymDivrDiffr(), 'divrW', factor_func1),
+                     (SymDivr(), 'divrdiffrW', factor_func2)]
             return self._compute_block(beta_mode, sh_factor, terms)
         else:
             dim = (maxnl - m) * nr
@@ -112,18 +114,8 @@ class WorlandTransform:
             sh_factor = elsasser_matrix(maxnl, m, lb, return_matrix=False)
 
             def factor_func(la, lb, lg): return lg * (lg + 1)
-            terms = [('divr', 'W', factor_func)]
+            terms = [(SymDivr(), 'W', factor_func)]
             return self._compute_block(beta_mode, sh_factor, terms)
-            # blocks = []
-            # for lg in range(m, maxnl):
-            #     for la in range(m, maxnl):
-            #         if elsasser[(lg, la)] == 0:
-            #             blocks.append(None)
-            #         else:
-            #             radial = sym_divr(beta_mode.radial_expr, self.r_grid)
-            #             weight = scsp.diags(self.weight * radial * lg * (lg + 1)) * elsasser[(lg, la)]
-            #             blocks.append(self.W[lg].T @ weight @ self.W[la])
-            # return scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl - m, maxnl - m)), format='csc')
         else:
             dim = (maxnl - m) * nr
             return scsp.csc_matrix((dim, dim))
@@ -140,27 +132,9 @@ class WorlandTransform:
 
             def factor_func2(la, lb, lg): return 0.5 * l2(la) * (l2(la) - l2(lb) - l2(lg))
 
-            terms = [('divr', 'divrdiffrW', factor_func1),
-                     ('diffdivr', 'W', factor_func2)]
+            terms = [(SymDivr(), 'divrdiffrW', factor_func1),
+                     (SymDiffDivr(), 'W', factor_func2)]
             return self._compute_block(beta_mode, sh_factor, terms)
-
-            # blocks = []
-            # for lg in range(m, maxnl):
-            #     for la in range(m, maxnl):
-            #         if gaunt[(lg, la)] == 0:
-            #             blocks.append(None)
-            #         else:
-            #             factor1 = -0.5 * l2(lg) * (l2(la) + l2(lb) - l2(lg))
-            #             factor2 = 0.5 * l2(la) * (l2(la) - l2(lb) - l2(lg))
-            #             radial = sym_divr(beta_mode.radial_expr, self.r_grid)
-            #             weight = scsp.diags((factor1 + factor2) * self.weight * radial) * gaunt[(lg, la)]
-            #             mat = self.W[lg].T @ weight @ self.divrdiffrW[la]
-            #
-            #             radial = sym_diffdivr(beta_mode.radial_expr, self.r_grid)
-            #             weight = scsp.diags(factor2 * self.weight * radial) * gaunt[(lg, la)]
-            #             mat += self.W[lg].T @ weight @ self.W[la]
-            #             blocks.append(mat)
-            # return scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl - m, maxnl - m)), format='csc')
         else:
             dim = (maxnl - m) * nr
             return scsp.csc_matrix((dim, dim))
@@ -175,55 +149,54 @@ class WorlandTransform:
             def factor_func1(la, lb, lg): return 0.5 * l2(lg) * (l2(la) + l2(lb) - l2(lg))
             def factor_func2(la, lb, lg): return -0.5 * l2(lb) * (-l2(la) + l2(lb) - l2(lg))
 
-            terms = [('divrdiffr', 'divrW', factor_func1),
-                     ('divr', 'divrdiffrW', factor_func2),
-                     ('diffdivr', 'W', factor_func2)]
+            terms = [(SymDivrDiffr(), 'divrW', factor_func1),
+                     (SymDivr(), 'divrdiffrW', factor_func2),
+                     (SymDiffDivr(), 'W', factor_func2)]
             return self._compute_block(beta_mode, sh_factor, terms)
         else:
             dim = (maxnl - m) * nr
             return scsp.csc_matrix((dim, dim))
 
-            # blocks = []
-            # for lg in range(m, maxnl):
-            #     for la in range(m, maxnl):
-            #         if gaunt[(lg, la)] == 0:
-            #             blocks.append(None)
-            #         else:
-            #             factor1 = 0.5 * l2(lg) * (l2(la) + l2(lb) - l2(lg))
-            #             factor2 = -0.5 * l2(lb) * (-l2(la) + l2(lb) - l2(lg))
-            #             radial = sym_divrdiffr(beta_mode.radial_expr, self.r_grid)
-            #             weight = scsp.diags(factor1 * self.weight * radial) * gaunt[(lg, la)]
-            #             mat = self.W[lg].T @ weight @ self.divrW[la]
-            #
-            #             radial = sym_divr(beta_mode.radial_expr, self.r_grid)
-            #             weight = scsp.diags(factor2 * self.weight * radial) * gaunt[(lg, la)]
-            #             mat += self.W[lg].T @ weight @ self.divrdiffrW[la]
-            #
-            #             radial = sym_diffdivr(beta_mode.radial_expr, self.r_grid)
-            #             weight = scsp.diags(factor2 * self.weight * radial) * gaunt[(lg, la)]
-            #             mat += self.W[lg].T @ weight @ self.W[la]
-            #             blocks.append(mat)
-            # return scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl - m, maxnl - m)), format='csc')
+    def curl2ss(self, beta_mode: SphericalHarmonicMode):
+        nr, maxnl, m = self.res
+        def l2(l): return l * (l + 1)
+        if beta_mode.comp == 'pol':
+            lb = beta_mode.l
+            sh_factor = elsasser_matrix(maxnl, m, lb, return_matrix=False)
 
-    def curl2ss(self, maxnl, m, beta_modes: Union[SphericalHarmonicMode, List[SphericalHarmonicMode]]):
-        pass
-        # TODO
+            def factor_func1(la, lb, lg): return -l2(la)
+            def factor_func2(la, lb, lg): return -l2(lb)
+            def factor_func3(la, lb, lg): return l2(lg)
+
+            terms = [
+                     (SymDivr2Diffr(), 'divrdiffrW', factor_func1),
+                     (SymrDiffDivr2Diffr(), 'divrW', factor_func1),
+                     (SymDivr2(), 'diff2rW', factor_func2),
+                     (SymDiffDivr(), 'divrdiffrW', factor_func2),
+                     (SymDivr2Diffr(), 'divrdiffrW', factor_func3)
+                     ]
+            return self._compute_block(beta_mode, sh_factor, terms)
+        else:
+            dim = (maxnl - m) * nr
+            return scsp.csc_matrix((dim, dim))
 
 
 if __name__ == "__main__":
     nr, maxnl, m = 11, 11, 1
-    n_grid = 120
+    n_grid = 100
     with Timer("init op"):
         transform = WorlandTransform(nr, maxnl, m, n_grid)
     beta_mode = SphericalHarmonicMode("pol", 2, 0, "2 Sqrt[pi/3] r^2(r^4+r^2-1)")
     with Timer("comp op"):
         # op = transform.curl1st(beta_mode)
         # op = transform.curl1ts(beta_mode)
-        op = transform.curl1ss(beta_mode)
+        # op = transform.curl1ss(beta_mode)
         # op = transform.curl2tt(beta_mode)
         # op = transform.curl2st(beta_mode)
-    a = op.todense()[:nr, :nr]
-    # a = op.todense()[nr:2*nr, :nr]
+        # op = transform.curl2ts(beta_mode)
+        op = transform.curl2ss(beta_mode)
+    # a = op.todense()[:nr, :nr]
+    a = op.todense()[nr:2*nr, :nr]
     a[np.abs(a)<np.max(np.abs(a))*1e-13]=0
     print(a)
     # print(op.diagonal())

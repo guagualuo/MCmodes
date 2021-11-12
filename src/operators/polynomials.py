@@ -4,6 +4,7 @@ from sympy.abc import r
 from sympy import lambdify, simplify, diff
 from sympy.parsing.mathematica import mathematica
 from scipy import special
+from abc import ABC, abstractmethod
 
 import quicc.geometry.worland.worland_basis as wb
 
@@ -23,9 +24,16 @@ def _jacobiP(n, a, b, x):
 def _DjacobiP(n, a, b, x):
     """ Compute first derivative of jacobi polynomial at x """
     if n == 0:
-        return np.zeros(x.shape)
+        return np.zeros_like(x)
     else:
         return 0.5 * (1.0 + a + b + n) * _jacobiP(n-1, a+1, b+1, x)
+
+
+def _D2jacobiP(n, a, b, x):
+    if n == 0 or n == 1:
+        return np.zeros_like(x)
+    else:
+        return 0.25*(1+a+b+n)*(2+a+b+n)*_jacobiP(n-2, a+2, b+2, x)
 
 
 def _worland(n, l, r_grid):
@@ -41,6 +49,15 @@ def _divrdiffrW(n, l, r_grid):
                                         4.0*r_grid**(l+1)*_DjacobiP(n, a, b, 2.0*r_grid**2-1.0))
     else:
         return np.zeros_like(r_grid)
+
+
+def _diff2rW(n, l, r_grid):
+    """ D^2 r W_n^l(r) """
+    a, b = -0.5, l-0.5
+    val = 4*(2*l+3)*r_grid**(l+1)*_DjacobiP(n, a, b, 2.0*r_grid**2-1.0) + 16*r_grid**(l+3)*_D2jacobiP(n, a, b, 2.0*r_grid**2-1.0)
+    if l > 0:
+        val += l*(l+1) * r_grid**(l-1) * _jacobiP(n, a, b, 2.0*r_grid**2-1.0)
+    return wb.worland_norm(n, l) * val
 
 
 def worland(nr, l, r_grid):
@@ -61,41 +78,101 @@ def divrdiffrW(nr, l, r_grid):
     return np.concatenate([_divrdiffrW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
 
 
-def sym_operators(name, **kwargs):
-    if name == 'diff': return sym_diff
-    if name == 'divr': return sym_divr
-    if name == 'diffdivr': return sym_diffdivr
-    if name == 'divrdiffr': return sym_divrdiffr
+def diff2rW(nr, l, r_grid):
+    """ D^2 r W_n^l(r) """
+    return np.concatenate([_diff2rW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
 
 
-def sym_divr(expr, r_grid):
-    divrf = simplify(expr/r)
-    func = lambdify(r, divrf, "numpy")
-    return func(r_grid)
+class SymOperatorBase(ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        pass
+
+    @abstractmethod
+    def apply(self, expr, r_grid):
+        pass
 
 
-def sym_divrdiffr(expr, r_grid):
-    divrdiffrf = simplify(diff(r*expr, r)/r)
-    func = lambdify(r, divrdiffrf, "numpy")
-    return func(r_grid)
+class SymDivr(SymOperatorBase):
+    def __init__(self):
+        super(SymDivr, self).__init__()
+
+    def apply(self, expr, r_grid):
+        divrf = simplify(expr / r)
+        func = lambdify(r, divrf, "numpy")
+        return func(r_grid)
 
 
-def sym_diff(expr, r_grid):
-    difff = simplify(diff(expr, r))
-    func = lambdify(r, difff, "numpy")
-    return func(r_grid)
+class SymDivr2(SymOperatorBase):
+    def __init__(self):
+        super(SymDivr2, self).__init__()
+
+    def apply(self, expr, r_grid):
+        divr2f = simplify(expr / r / r)
+        func = lambdify(r, divr2f, "numpy")
+        return func(r_grid)
 
 
-def sym_diffdivr(expr, r_grid):
-    diffdivrf = simplify(diff(expr/r, r))
-    func = lambdify(r, diffdivrf, "numpy")
-    return func(r_grid)
+class SymDivrDiffr(SymOperatorBase):
+    def __init__(self):
+        super(SymDivrDiffr, self).__init__()
+
+    def apply(self, expr, r_grid):
+        divrdiffrf = simplify(diff(r * expr, r) / r)
+        func = lambdify(r, divrdiffrf, "numpy")
+        return func(r_grid)
 
 
-def sym_laplacianl(expr, r_grid, l):
-    laplacianlf = simplify(diff(r**2*diff(expr, r), r)/r**2 - l*(l+1)/r**2*expr)
-    func = lambdify(r, laplacianlf, "numpy")
-    return func(r_grid)
+class SymDiff(SymOperatorBase):
+    def __init__(self):
+        super(SymDiff, self).__init__()
+
+    def apply(self, expr, r_grid):
+        difff = simplify(diff(expr, r))
+        func = lambdify(r, difff, "numpy")
+        return func(r_grid)
+
+
+class SymDiffDivr(SymOperatorBase):
+    def __init__(self):
+        super(SymDiffDivr, self).__init__()
+
+    def apply(self, expr, r_grid):
+        diffdivrf = simplify(diff(expr / r, r))
+        func = lambdify(r, diffdivrf, "numpy")
+        return func(r_grid)
+
+
+class SymDivr2Diffr(SymOperatorBase):
+    def __init__(self):
+        super(SymDivr2Diffr, self).__init__()
+
+    def apply(self, expr, r_grid):
+        divrdiffrf = simplify(diff(r * expr, r) / r ** 2)
+        func = lambdify(r, divrdiffrf, "numpy")
+        return func(r_grid)
+
+
+class SymLaplacianl(SymOperatorBase):
+    def __init__(self, l):
+        super(SymLaplacianl, self).__init__()
+        self.l = l
+
+    def apply(self, expr, r_grid):
+        l = self.l
+        laplacianlf = simplify(diff(r ** 2 * diff(expr, r), r) / r ** 2 - l * (l + 1) / r ** 2 * expr)
+        func = lambdify(r, laplacianlf, "numpy")
+        return func(r_grid)
+
+
+class SymrDiffDivr2Diffr(SymOperatorBase):
+    def __init__(self):
+        super(SymrDiffDivr2Diffr, self).__init__()
+
+    def apply(self, expr, r_grid):
+        opf = simplify(r*diff(diff(r*expr, r)/r**2, r))
+        func = lambdify(r, opf, "numpy")
+        return func(r_grid)
 
 
 class SphericalHarmonicMode:
@@ -130,5 +207,5 @@ if __name__ == "__main__":
     # print(expr)
     # print(sym_divrdiffr(expr, r_grid))
     # print(np.allclose(2*np.pi/5*(1-2*r_grid**2), sym_divrdiffr(expr, r_grid)))
-    print(_divrdiffrW(2, 1, r_grid))
+    print(_diff2rW(5, 2, r_grid))
 
