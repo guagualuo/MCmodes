@@ -1,8 +1,5 @@
 import numpy as np
 from sympy.physics.wigner import gaunt, wigner_3j
-from sympy.parsing.mathematica import mathematica
-from sympy import lambdify
-from sympy.abc import r
 from math import sqrt, pi
 
 from utils import Timer
@@ -22,16 +19,6 @@ def _elsasser(l_1, l_2, l_3, m_1, m_2, m_3):
         e *= sqrt((l_1+l_2+l_3+2)*(l_1+l_2+l_3+4)/4/(l_1+l_2+l_3+3))
         e *= sqrt((l_1+l_2-l_3+1)*(l_1-l_2+l_3+1)*(-l_1+l_2+l_3+1))
     return -1.0j * (-1)**(m_1+m_2) * e
-
-
-class SphericalHarmonicMode:
-    def __init__(self, comp, l, m, radial_func: str):
-        assert comp in ['tor', 'pol']
-        self.comp = comp
-        self.l = l
-        self.m = m
-        self.radial_expr = mathematica(radial_func)
-        self.radial_func = lambdify(r, self.radial_expr, "numpy")
 
 
 def gaunt_matrix(maxnl, m, lb, return_matrix=False):
@@ -84,7 +71,7 @@ if __name__ == "__main__":
     # print(_elsasser(l_1, l_2, l_3, m_1, m_2, m_3))
     with Timer():
         import matplotlib.pyplot as plt
-        maxnl, m, lb = 10, 1, 1
+        maxnl, m, lb = 11, 1, 1
         g = gaunt_matrix(maxnl, m, lb, return_matrix=True)
         e = elsasser_matrix(maxnl, m, lb, return_matrix=True)
     fig, (ax1, ax2) = plt.subplots(figsize=(10, 4.5), ncols=2)
