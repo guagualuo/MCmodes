@@ -26,6 +26,21 @@ def induction_quasi_inverse(nr, maxnl, m):
                             geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
 
 
+def induction_mass(nr, maxnl, m):
+    return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+                            geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+
+
+def mag_diffusion(nr, maxnl, m, bc=True):
+    """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
+    if bc:
+        return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc={0: 10}, with_sh_coeff='laplh', l_zero_fix='set'),
+                                geo.i2lapl(nr, maxnl, m, bc={0: 13}, with_sh_coeff='laplh', l_zero_fix='set')))
+    else:
+        return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+                                geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+
+
 if __name__ == "__main__":
     nr, maxnl, m = 11, 11, 1
     n_grid = 120
