@@ -17,9 +17,9 @@ with Timer("init op"):
 beta_modes = [t10, s10]
 Rm = 160
 with Timer("build op"):
-    _ind_op = induction(transform, beta_modes)
+    ind_op = induction(transform, beta_modes)
     quasi_inverse = induction_quasi_inverse(nr, maxnl, m)
-    ind_op = quasi_inverse @ _ind_op
+    ind_op = quasi_inverse @ ind_op
     mag_diff = mag_diffusion(nr, maxnl, m)
     mass = induction_mass(nr, maxnl, m)
 

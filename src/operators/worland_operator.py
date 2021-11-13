@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as scsp
 from typing import Union, List, Dict, Tuple
-from numba import jit
+from numba import njit
 
 from operators.polynomials import *
 from operators.threeJ_integrals import gaunt_matrix, elsasser_matrix
@@ -25,40 +25,80 @@ class WorlandTransform:
         nr, maxnl, m = self.res
         r_grid = self.r_grid
         self.operators = {}
-        self.operators['W'] = {}
-        self.operators['divrW'] = {}
-        self.operators['divrdiffrW'] = {}
-        self.operators['diff2rW'] = {}
+        self.operators['W'] = []
+        self.operators['divrW'] = []
+        self.operators['divrdiffrW'] = []
+        self.operators['diff2rW'] = []
         for l in range(m, maxnl):
             mat = worland(nr, l, r_grid)
-            self.operators['W'][l] = mat
-            self.operators['divrW'][l] = np.array(scsp.diags(1/r_grid) @ mat)
-            self.operators['divrdiffrW'][l] = divrdiffrW(nr, l, r_grid)
-            self.operators['diff2rW'][l] = diff2rW(nr, l, r_grid)
+            self.operators['W'].append(mat)
+            self.operators['divrW'].append(np.array(scsp.diags(1/r_grid) @ mat))
+            self.operators['divrdiffrW'].append(divrdiffrW(nr, l, r_grid))
+            self.operators['diff2rW'].append(diff2rW(nr, l, r_grid))
+        for k, v in self.operators.items():
+            self.operators[k] = np.array(v)
 
-    def _compute_per_l_block(self, la, lg, beta_mode, beta_op: SymOperatorBase, alpha_op: str, factor):
-        """ compute single combination of la, lg """
-        radial = beta_op.apply(beta_mode.radial_expr, self.r_grid)
-        weight = scsp.diags(factor * self.weight * radial)
-        return self.operators['W'][lg].T @ weight @ self.operators[alpha_op][la]
+    # def _compute_per_l_block(self, la, lg, beta_mode, beta_op: SymOperatorBase, alpha_op: str, factor):
+    #     """ compute single combination of la, lg """
+    #     radial = beta_op.apply(beta_mode.radial_expr, self.r_grid)
+    #     weight = scsp.diags(factor * self.weight * radial)
+    #     return self.operators['W'][lg].T @ weight @ self.operators[alpha_op][la]
+
+    # def _compute_block(self, beta_mode: SphericalHarmonicMode, sh_factor: Dict, terms: List[Tuple]):
+    #     """ compute matrix for all l """
+    #     nr, maxnl, m = self.res
+    #     lb = beta_mode.l
+    #     blocks = []
+    #     for lg in range(m, maxnl):
+    #         for la in range(m, maxnl):
+    #             if sh_factor[(lg, la)] == 0:
+    #                 blocks.append(scsp.csc_matrix((nr, nr)))
+    #             else:
+    #                 mat = scsp.csc_matrix((nr, nr))
+    #                 for term in terms:
+    #                     beta_op, alpha_op, factor = term
+    #                     mat += self._compute_per_l_block(la, lg, beta_mode, beta_op, alpha_op,
+    #                                                      factor(la, lb, lg)*sh_factor[(lg, la)])
+    #                 blocks.append(mat)
+    #     return scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
+
+    @staticmethod
+    @njit
+    def _compute_block_numba(left_ops, right_ops, weight, factor_mat):
+        ops = []
+        for i in range(left_ops.shape[0]):
+            for j in range(left_ops.shape[0]):
+                if factor_mat[i, j] != 0:
+                    mat = left_ops[i].T @ weight @ right_ops[j]
+                    ops.append(factor_mat[i, j] * mat)
+        return ops
 
     def _compute_block(self, beta_mode: SphericalHarmonicMode, sh_factor: Dict, terms: List[Tuple]):
         """ compute matrix for all l """
         nr, maxnl, m = self.res
         lb = beta_mode.l
-        blocks = []
-        for lg in range(m, maxnl):
-            for la in range(m, maxnl):
-                if sh_factor[(lg, la)] == 0:
-                    blocks.append(scsp.csc_matrix((nr, nr)))
-                else:
-                    mat = scsp.csc_matrix((nr, nr))
-                    for term in terms:
-                        beta_op, alpha_op, factor = term
-                        mat += self._compute_per_l_block(la, lg, beta_mode, beta_op, alpha_op,
-                                                         factor(la, lb, lg)*sh_factor[(lg, la)])
-                    blocks.append(mat)
-        return scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
+        mat = scsp.csc_matrix((nr*(maxnl-m), nr*(maxnl-m)))
+        for term in terms:
+            beta_op, alpha_op, factor = term
+            radial = beta_op.apply(beta_mode.radial_expr, self.r_grid)
+            weight = np.diag(self.weight * radial)
+            factor_mat = np.zeros((maxnl-m, maxnl-m), dtype=np.complex128)
+            for i, lg in enumerate(range(m, maxnl)):
+                for j, la in enumerate(range(m, maxnl)):
+                    factor_mat[i, j] = factor(la, lb, lg) * sh_factor[(lg, la)]
+
+            nonzero_ops = self._compute_block_numba(self.operators['W'], self.operators[alpha_op], weight, factor_mat)
+
+            k, blocks = 0, []
+            for i, lg in enumerate(range(m, maxnl)):
+                for j, la in enumerate(range(m, maxnl)):
+                    if factor_mat[i, j] == 0:
+                        blocks.append(scsp.csc_matrix((nr, nr)))
+                    else:
+                        blocks.append(nonzero_ops[k])
+                        k += 1
+            mat += scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
+        return mat
 
     def curl1tt(self, beta_mode: SphericalHarmonicMode):
         nr, maxnl, m = self.res

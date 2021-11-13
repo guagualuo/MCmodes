@@ -12,7 +12,7 @@ class Timer(object):
         self.start = time.time()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        print(f"{self.name} elapsed {time.time() - self.start} s.")
+        print(f"{self.name} elapsed {time.time() - self.start:.2f} s.")
 
 
 def single_eig(A, B, target, nev=5, tol=1e-14):
