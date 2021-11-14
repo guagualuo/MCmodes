@@ -60,6 +60,13 @@ def _diff2rW(n, l, r_grid):
     return wb.worland_norm(n, l) * val
 
 
+def _laplacianlW(n, l, r):
+    """ D^2 + 2/r D - l(l+1)/r^2 """
+    a, b = -0.5, l-0.5
+    return wb.worland_norm(n, l) * (16.0 * r**(l+2) * _D2jacobiP(n,a,b,2.0*r**2-1.0) +
+                                   (8.0*l+12.0) * r**l * _DjacobiP(n,a,b,2.0*r**2-1.0))
+
+
 def worland(nr, l, r_grid):
     """W(r)"""
     return np.concatenate([_worland(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
@@ -81,6 +88,11 @@ def divrdiffrW(nr, l, r_grid):
 def diff2rW(nr, l, r_grid):
     """ D^2 r W_n^l(r) """
     return np.concatenate([_diff2rW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+
+
+def laplacianlW(nr, l, r_grid):
+    """ 1/r^2 D(r^2 D ) - l(l+1)/r^2 W_n^l(r) """
+    return np.concatenate([_laplacianlW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
 
 
 class SymOperatorBase(ABC):

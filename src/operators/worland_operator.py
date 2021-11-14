@@ -10,7 +10,7 @@ from utils import Timer
 
 
 class WorlandTransform:
-    def __init__(self, maxnl, nr, m, n_grid):
+    def __init__(self, maxnl, nr, m, n_grid, require_curl=False):
         self.res = nr, maxnl, m
         self.n_grid = n_grid
         if n_grid < nr + maxnl//2 + 10:
@@ -20,23 +20,34 @@ class WorlandTransform:
 
         # init operators
         self._init_operators()
+        if require_curl:
+            self._init_curl_op()
 
     def _init_operators(self):
         nr, maxnl, m = self.res
         r_grid = self.r_grid
         self.operators = {}
+        self.transformers = {}
         self.operators['W'] = []
         self.operators['divrW'] = []
         self.operators['divrdiffrW'] = []
         self.operators['diff2rW'] = []
+        self.operators['laplacianlW'] = []
         for l in range(m, maxnl):
             mat = worland(nr, l, r_grid)
             self.operators['W'].append(mat)
             self.operators['divrW'].append(np.array(scsp.diags(1/r_grid) @ mat))
             self.operators['divrdiffrW'].append(divrdiffrW(nr, l, r_grid))
             self.operators['diff2rW'].append(diff2rW(nr, l, r_grid))
+            self.operators['laplacianlW'].append(laplacianlW(nr, l, r_grid))
         for k, v in self.operators.items():
             self.operators[k] = np.array(v)
+
+    def _init_curl_op(self):
+        nr, maxnl, m = self.res
+        self.transformers['curl'] = []
+        for i, l in enumerate(range(m, maxnl)):
+            self.transformers['curl'].append(np.array(self.operators['W'][i].T @ scsp.diags(self.weight) @ self.operators['lalacianlW'][i]))
 
     # def _compute_per_l_block(self, la, lg, beta_mode, beta_op: SymOperatorBase, alpha_op: str, factor):
     #     """ compute single combination of la, lg """
@@ -64,12 +75,23 @@ class WorlandTransform:
 
     @staticmethod
     @njit
-    def _compute_block_numba(left_ops, right_ops, weight, factor_mat):
+    def _compute_block_numba1(left_ops, right_ops, weight, factor_mat):
         ops = []
         for i in range(left_ops.shape[0]):
             for j in range(left_ops.shape[0]):
                 if factor_mat[i, j] != 0:
                     mat = left_ops[i].T @ weight @ right_ops[j]
+                    ops.append(factor_mat[i, j] * mat)
+        return ops
+
+    @staticmethod
+    @njit
+    def _compute_block_numba2(left_ops, right_ops, transformer, weight, factor_mat):
+        ops = []
+        for i in range(left_ops.shape[0]):
+            for j in range(left_ops.shape[0]):
+                if factor_mat[i, j] != 0:
+                    mat = left_ops[i].T @ weight @ right_ops[j] @ transformer[j]
                     ops.append(factor_mat[i, j] * mat)
         return ops
 
@@ -79,7 +101,11 @@ class WorlandTransform:
         lb = beta_mode.l
         mat = scsp.csc_matrix((nr*(maxnl-m), nr*(maxnl-m)))
         for term in terms:
-            beta_op, alpha_op, factor = term
+            if len(term) == 3:
+                beta_op, alpha_op, factor = term
+                transformer = None
+            else:
+                beta_op, alpha_op, factor, transformer = term
             radial = beta_op.apply(beta_mode.radial_expr, self.r_grid)
             weight = np.diag(self.weight * radial)
             factor_mat = np.zeros((maxnl-m, maxnl-m), dtype=np.complex128)
@@ -87,7 +113,11 @@ class WorlandTransform:
                 for j, la in enumerate(range(m, maxnl)):
                     factor_mat[i, j] = factor(la, lb, lg) * sh_factor[(lg, la)]
 
-            nonzero_ops = self._compute_block_numba(self.operators['W'], self.operators[alpha_op], weight, factor_mat)
+            if transformer is None:
+                nonzero_ops = self._compute_block_numba1(self.operators['W'], self.operators[alpha_op], weight, factor_mat)
+            else:
+                nonzero_ops = self._compute_block_numba2(self.operators['W'], self.operators[alpha_op],
+                                                         self.transformers[transformer], weight, factor_mat)
 
             k, blocks = 0, []
             for i, lg in enumerate(range(m, maxnl)):
@@ -215,6 +245,77 @@ class WorlandTransform:
                      (SymDiffDivr(), 'divrdiffrW', factor_func2),
                      (SymDivr2Diffr(), 'divrdiffrW', factor_func3)
                      ]
+            return self._compute_block(beta_mode, sh_factor, terms)
+        else:
+            dim = (maxnl - m) * nr
+            return scsp.csc_matrix((dim, dim))
+
+    def curl1curltt(self, beta_mode: SphericalHarmonicMode):
+        return self.curl1st(beta_mode)
+
+    def curl1curlts(self, beta_mode: SphericalHarmonicMode):
+        return self.curl1ss(beta_mode)
+
+    def curl2curltt(self, beta_mode: SphericalHarmonicMode):
+        return self.curl2st(beta_mode)
+
+    def curl2curlts(self, beta_mode: SphericalHarmonicMode):
+        return self.curl2ss(beta_mode)
+
+    def curl1curlst(self, beta_mode: SphericalHarmonicMode):
+        nr, maxnl, m = self.res
+        dim = (maxnl - m) * nr
+        return scsp.csc_matrix((dim, dim))
+
+    def curl1curlss(self, beta_mode: SphericalHarmonicMode):
+        nr, maxnl, m = self.res
+        if beta_mode.comp == 'pol':
+            lb = beta_mode.l
+            sh_factor = elsasser_matrix(maxnl, m, lb, return_matrix=False)
+
+            def factor_func(la, lb, lg):
+                return -lb * (lb + 1) * (-1) ** (la + lb + lg - 1)
+
+            terms = [(SymDivr(), 'laplacianlW', factor_func)]
+            return self._compute_block(beta_mode, sh_factor, terms)
+        else:
+            dim = (maxnl - m) * nr
+            return scsp.csc_matrix((dim, dim))
+
+    def curl2curlst(self, beta_mode: SphericalHarmonicMode):
+        nr, maxnl, m = self.res
+        if beta_mode.comp == 'tor':
+            lb = beta_mode.l
+            sh_factor = elsasser_matrix(maxnl, m, lb, return_matrix=False)
+
+            def factor_func(la, lb, lg):
+                return -lg * (lg + 1)
+
+            terms = [(SymDivr(), 'laplacianlW', factor_func)]
+            return self._compute_block(beta_mode, sh_factor, terms)
+        else:
+            dim = (maxnl - m) * nr
+            return scsp.csc_matrix((dim, dim))
+
+    def curl2curlss(self, beta_mode: SphericalHarmonicMode):
+        nr, maxnl, m = self.res
+
+        def l2(l):
+            return l * (l + 1)
+
+        if beta_mode.comp == 'pol':
+            lb = beta_mode.l
+            sh_factor = gaunt_matrix(maxnl, m, lb, return_matrix=False)
+
+            def factor_func1(la, lb, lg):
+                return -0.5 * l2(lg) * (l2(la) + l2(lb) - l2(lg))
+
+            def factor_func2(la, lb, lg):
+                return +0.5 * l2(lb) * (-l2(la) + l2(lb) - l2(lg))
+
+            terms = [(SymDivrDiffr(), 'divrW', factor_func1, 'curl'),
+                     (SymDivr(), 'divrdiffrW', factor_func2, 'curl'),
+                     (SymDiffDivr(), 'laplacianlW', factor_func2)]
             return self._compute_block(beta_mode, sh_factor, terms)
         else:
             dim = (maxnl - m) * nr
