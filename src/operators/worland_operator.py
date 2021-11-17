@@ -10,7 +10,7 @@ from utils import Timer
 
 
 class WorlandTransform:
-    def __init__(self, maxnl, nr, m, n_grid, require_curl=False):
+    def __init__(self, nr, maxnl, m, n_grid, require_curl=False):
         self.res = nr, maxnl, m
         self.n_grid = n_grid
         if n_grid < nr + maxnl//2 + 10:

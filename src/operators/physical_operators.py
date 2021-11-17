@@ -31,7 +31,7 @@ def induction_mass(nr, maxnl, m):
                             geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
 
 
-def mag_diffusion(nr, maxnl, m, bc=True):
+def induction_diffusion(nr, maxnl, m, bc=True):
     """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
     if bc:
         return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc={0: 10}, with_sh_coeff='laplh', l_zero_fix='set'),
@@ -39,6 +39,33 @@ def mag_diffusion(nr, maxnl, m, bc=True):
     else:
         return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                                 geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+
+
+def lorentz1(transform: WorlandTransform, modes: List[SphericalHarmonicMode]):
+    """ Lorentz term (curl B_0) x b, in which B_0 is the background field.
+            [ r.curl1(J0 x b), r.curl1(J0 x b)
+              r.curl2(J0 x b), r.curl2(J0 x b)]"""
+    curl_modes = [mode.curl for mode in modes]
+    tt = sum([transform.curl1tt(mode) + transform.curl1ts(mode) for mode in curl_modes])
+    ts = sum([transform.curl1st(mode) + transform.curl1ss(mode) for mode in curl_modes])
+    st = sum([transform.curl2tt(mode) + transform.curl2ts(mode) for mode in curl_modes])
+    ss = sum([transform.curl2st(mode) + transform.curl2ss(mode) for mode in curl_modes])
+    return -scsp.bmat([[tt, ts], [st, ss]], format='csc')
+
+
+def lorentz2(transform: WorlandTransform, modes: List[SphericalHarmonicMode]):
+    """ Lorentz term (curl b) x B_0, in which B_0 is the background field.
+            [ r.curl1(j x b), r.curl1(j x b)
+              r.curl2(j x b), r.curl2(j x b)]"""
+    tt = sum([transform.curl1curltt(mode) + transform.curl1curlts(mode) for mode in modes])
+    ts = sum([transform.curl1curlst(mode) + transform.curl1curlss(mode) for mode in modes])
+    st = sum([transform.curl2curltt(mode) + transform.curl2curlts(mode) for mode in modes])
+    ss = sum([transform.curl2curlst(mode) + transform.curl2curlss(mode) for mode in modes])
+    return scsp.bmat([[tt, ts], [st, ss]], format='csc')
+
+
+def lorentz(transform: WorlandTransform, modes: List[SphericalHarmonicMode]):
+    return lorentz1(transform, modes) + lorentz2(transform, modes)
 
 
 if __name__ == "__main__":
