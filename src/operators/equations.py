@@ -21,7 +21,6 @@ class InductionEquation(BaseEquation):
     """ Operators in the induction equations """
     def __init__(self, nr, maxnl, m):
         super(InductionEquation, self).__init__(nr, maxnl, m)
-        self.res = nr, maxnl, m
         self.bc = {'tor': {0: 10}, 'pol': {0: 13}}
 
     def induction(self, transform: WorlandTransform, beta_modes: List[SphericalHarmonicMode],
@@ -80,7 +79,7 @@ class MomentumEquation(BaseEquation):
         else:
             if self.bc_type == 'no-slip':
                 self.bc = {"tor": {0: 10}, "pol": {0: 20}}
-            else:
+            if self.bc_type == 'stress-free':
                 self.bc = {"tor": {0: 12}, "pol": {0: 21}}
 
     def lorentz1(self, transform: WorlandTransform, modes: List[SphericalHarmonicMode]):
