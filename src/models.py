@@ -66,17 +66,32 @@ class MagnetoCoriolis(BaseModel):
         if len(flow_modes) > 0:
             operators['advection'] = momentum_qi @ lorentz(self.transform, flow_modes)
             operators['inductionU'] = induction_qi @ induction(self.transform, flow_modes, imposed_flow=True)
+        else:
+            operators['advection'] = scsp.csc_matrix((nr*(maxnl-m), nr*(maxnl-m)))
+            operators['inductionU'] = scsp.csc_matrix((nr*(maxnl-m), nr*(maxnl-m)))
         operators['magnetic_diffusion'] = induction_diffusion(nr, maxnl, m, bc=True)
         operators['coriolis'] = coriolis(nr, maxnl, m, inviscid=self.inviscid, bc=self.inviscid)
-        if not self.inviscid:
+        if self.inviscid:
+            operators['viscous_diffusion'] = scsp.csc_matrix((nr * (maxnl - m), nr * (maxnl - m)))
+        else:
             operators['viscous_diffusion'] = viscous_diffusion(nr, maxnl, m, bc=True, bc_type=self.bc)
         operators['induction_mass'] = induction_mass(nr, maxnl, m)
-        operators['momentum_mass'] = momentum_mass(nr, maxnl, m, self.inviscid)
+        operators['momentum_mass'] = momentum_mass(nr, maxnl, m, inviscid=self.inviscid)
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
         else:
             return operators
 
     def setup_eigen_problem(self, operators, **kwargs):
-        pass
+        Eeta = kwargs.get('magnetic_ekman')
+        elsasser = kwargs.get('elsasser')
+        U = kwargs.get('U', 0)
+        ekman = kwargs.get('ekman', 0)
 
+        B = scsp.block_diag([Eeta*operators['momentum_mass'], operators['induction_mass']])
+        A = scsp.bmat([[-Eeta*U*operators['advection']-operators['coriolis'] + ekman*operators['ekman'],
+                        elsasser*operators['lorentz']],
+                       [elsasser*operators['inductionB'],
+                        U*operators['inductionU'] + operators['magnetic_diffusion']]
+                       ])
+        return A, B
