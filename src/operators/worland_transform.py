@@ -324,10 +324,11 @@ class WorlandTransform:
 
 if __name__ == "__main__":
     nr, maxnl, m = 11, 11, 1
+    np.set_printoptions(16)
     n_grid = 100
     with Timer("init op"):
-        transform = WorlandTransform(nr, maxnl, m, n_grid)
-    beta_mode = SphericalHarmonicMode("pol", 2, 0, "2 Sqrt[pi/3] r^2(r^4+r^2-1)")
+        transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=True)
+    beta_mode = SphericalHarmonicMode("pol", 1, 0, "1/5 Sqrt[pi/3] r(5-3r^2)")
     with Timer("comp op"):
         # op = transform.curl1st(beta_mode)
         # op = transform.curl1ts(beta_mode)
@@ -335,9 +336,10 @@ if __name__ == "__main__":
         # op = transform.curl2tt(beta_mode)
         # op = transform.curl2st(beta_mode)
         # op = transform.curl2ts(beta_mode)
-        op = transform.curl2ss(beta_mode)
-    # a = op.todense()[:nr, :nr]
-    a = op.todense()[nr:2*nr, :nr]
+        # op = transform.curl2ss(beta_mode)
+        op = transform.curl2curlss(beta_mode)
+    # a = op.todense()[:nr, nr:2*nr]
+    a = op.todense()[9*nr:10*nr, 8*nr:9*nr]
     a[np.abs(a)<np.max(np.abs(a))*1e-13]=0
     print(a)
     # print(op.diagonal())
