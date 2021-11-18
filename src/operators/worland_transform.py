@@ -47,7 +47,10 @@ class WorlandTransform:
         nr, maxnl, m = self.res
         self.transformers['curl'] = []
         for i, l in enumerate(range(m, maxnl)):
-            self.transformers['curl'].append(np.array(self.operators['W'][i].T @ scsp.diags(self.weight) @ self.operators['lalacianlW'][i]))
+            self.transformers['curl'].append(np.array(self.operators['W'][i].T @ scsp.diags(self.weight) @
+                                                      self.operators['laplacianlW'][i]))
+        for k, v in self.transformers.items():
+            self.transformers[k] = np.array(v)
 
     # def _compute_per_l_block(self, la, lg, beta_mode, beta_op: SymOperatorBase, alpha_op: str, factor):
     #     """ compute single combination of la, lg """
@@ -299,9 +302,7 @@ class WorlandTransform:
 
     def curl2curlss(self, beta_mode: SphericalHarmonicMode):
         nr, maxnl, m = self.res
-
-        def l2(l):
-            return l * (l + 1)
+        def l2(l): return l * (l + 1)
 
         if beta_mode.comp == 'pol':
             lb = beta_mode.l
@@ -309,7 +310,6 @@ class WorlandTransform:
 
             def factor_func1(la, lb, lg):
                 return -0.5 * l2(lg) * (l2(la) + l2(lb) - l2(lg))
-
             def factor_func2(la, lb, lg):
                 return +0.5 * l2(lb) * (-l2(la) + l2(lb) - l2(lg))
 

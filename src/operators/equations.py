@@ -89,7 +89,7 @@ class MomentumEquation(BaseEquation):
                       r.curl2(J0 x b), r.curl2(J0 x b)]"""
         nr, maxnl, m = self.res
         if len(modes) > 0:
-            curl_modes = [mode.curl for mode in modes]
+            curl_modes = [mode.curl() for mode in modes]
             tt = sum([transform.curl1tt(mode) + transform.curl1ts(mode) for mode in curl_modes])
             ts = sum([transform.curl1st(mode) + transform.curl1ss(mode) for mode in curl_modes])
             st = sum([transform.curl2tt(mode) + transform.curl2ts(mode) for mode in curl_modes])
