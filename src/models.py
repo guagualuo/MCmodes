@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
+import scipy.sparse.linalg as spla
+from typing import Union, List
+
 from operators.equations import *
 from operators.worland_transform import WorlandTransform
-from typing import Union, List
 
 
 class BaseModel(ABC):
@@ -66,7 +68,7 @@ class InertialModes(BaseModel):
 
 
 class MagnetoCoriolis(BaseModel):
-    def __init__(self, nr, maxnl, m, inviscid=True, bc=None):
+    def __init__(self, nr, maxnl, m, n_grid, inviscid=True, bc=None):
         super(MagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid)
         self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=True)
         self.inviscid = inviscid
@@ -107,10 +109,18 @@ class MagnetoCoriolis(BaseModel):
         U = kwargs.get('U', 0)
         ekman = kwargs.get('ekman', 0)
 
-        B = scsp.block_diag([Eeta*operators['momentum_mass'], operators['induction_mass']])
-        A = scsp.bmat([[-Eeta*U*operators['advection']-operators['coriolis'] + ekman*operators['ekman'],
-                        elsasser*operators['lorentz']],
-                       [elsasser*operators['inductionB'],
-                        U*operators['inductionU'] + operators['magnetic_diffusion']]
-                       ])
+        if Eeta == 0:
+            clu = spla.splu(operators['coriolis'])
+            u = clu.solve(operators['lorentz'].toarray())
+            operators['ms_induction'] = operators['inductionB'] @ u
+
+            B = operators['induction_mass']
+            A = elsasser*operators['ms_induction'] + operators['magnetic_diffusion']
+        else:
+            B = scsp.block_diag((Eeta*operators['momentum_mass'], operators['induction_mass']))
+            A = scsp.bmat([[-Eeta*U*operators['advection']-operators['coriolis'] + ekman*operators['viscous_diffusion'],
+                            elsasser**0.5*operators['lorentz']],
+                           [elsasser**0.5*operators['inductionB'],
+                            U*operators['inductionU'] + operators['magnetic_diffusion']]
+                           ])
         return A, B

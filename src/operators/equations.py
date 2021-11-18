@@ -116,10 +116,10 @@ class MomentumEquation(BaseEquation):
         op = self.lorentz1(transform, field_modes) + self.lorentz2(transform, field_modes)
         if quasi_inverse:
             op = self.quasi_inverse() @ op
-        return op
+        return op.tocsc()
 
     def advection(self, transform: WorlandTransform, flow_modes: List[SphericalHarmonicMode], quasi_inverse=True):
-        return self.lorentz(transform, flow_modes, quasi_inverse)
+        return self.lorentz(transform, flow_modes, quasi_inverse).tocsc()
 
     def mass(self):
         nr, maxnl, m = self.res
@@ -163,7 +163,7 @@ class MomentumEquation(BaseEquation):
                 return scsp.bmat([[supp_geo.i2_nobc(nr, maxnl, m, bc=self.bc['tor'], coeff=-1.0j*m, l_zero_fix='set'),
                                    supp_geo.i2coriolis_nobc(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero')],
                                   [geo.i2coriolis(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero'),
-                                   geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], coeff=1.0j*m, l_zero_fix='set')]])
+                                   geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], coeff=1.0j*m, l_zero_fix='set')]], format='csc')
             else:
                 return scsp.bmat([[supp_geo.i2_nobc(nr, maxnl, m, bc=no_bc(), coeff=-1.0j*m, l_zero_fix='zero'),
                                    supp_geo.i2coriolis_nobc(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero')],
