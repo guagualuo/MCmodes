@@ -10,7 +10,7 @@ import quicc.geometry.spherical.sphere_worland as geo
 from quicc.geometry.spherical.sphere_boundary_worland import no_bc
 
 
-def induction(transform: WorlandTransform, beta_modes: List[SphericalHarmonicMode]):
+def induction(transform: WorlandTransform, beta_modes: List[SphericalHarmonicMode], imposed_flow: bool):
     """ Induction term curl (u x B_0), in which B_0 is the background field.
         [ r.curl2(t_a x B_0), r.curl2(s_a x B_0)
           r.curl1(t_a x B0), r.curl1(s_a x B_0)]"""
@@ -18,7 +18,14 @@ def induction(transform: WorlandTransform, beta_modes: List[SphericalHarmonicMod
     ts = sum([transform.curl2st(mode) + transform.curl2ss(mode) for mode in beta_modes])
     st = sum([transform.curl1tt(mode) + transform.curl1ts(mode) for mode in beta_modes])
     ss = sum([transform.curl1st(mode) + transform.curl1ss(mode) for mode in beta_modes])
-    return scsp.bmat([[tt, ts], [st, ss]], format='csc')
+    if imposed_flow:
+        return -scsp.bmat([[tt, ts], [st, ss]], format='csc')
+    else:
+        return scsp.bmat([[tt, ts], [st, ss]], format='csc')
+
+
+def coriolis(nr, maxnl, m, inviscid: bool, bc: bool):
+    raise NotImplementedError
 
 
 def induction_quasi_inverse(nr, maxnl, m):
@@ -26,9 +33,17 @@ def induction_quasi_inverse(nr, maxnl, m):
                             geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
 
 
+def momentum_quasi_inverse(nr, maxnl, m, inviscid: bool):
+    raise NotImplementedError
+
+
 def induction_mass(nr, maxnl, m):
     return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                             geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+
+
+def momentum_mass(nr, maxnl, m, inviscid):
+    raise NotImplementedError
 
 
 def induction_diffusion(nr, maxnl, m, bc=True):
@@ -39,6 +54,11 @@ def induction_diffusion(nr, maxnl, m, bc=True):
     else:
         return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                                 geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+
+
+def viscous_diffusion(nr, maxnl, m, bc, bc_type):
+    """ Build the dissipation matrix for the velocity field """
+    raise NotImplementedError
 
 
 def lorentz1(transform: WorlandTransform, modes: List[SphericalHarmonicMode]):
