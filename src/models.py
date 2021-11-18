@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from operators.physical_operators import *
-from operators.worland_operator import WorlandTransform
+from operators.equations import *
+from operators.worland_transform import WorlandTransform
 from typing import Union, List
 
 
@@ -21,16 +21,13 @@ class BaseModel(ABC):
 class KinematicDynamo(BaseModel):
     def __init__(self, nr, maxnl, m, n_grid):
         super(KinematicDynamo, self).__init__(nr, maxnl, m, n_grid)
-        nr, maxnl, m = self.res
         self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=False)
+        self.induction_eq = InductionEquation(*self.res)
 
     def setup_operator(self, flow_modes: List[SphericalHarmonicMode], setup_eigen=False, **kwargs):
-        nr, maxnl, m = self.res
-        mass_mat = induction_mass(nr, maxnl, m)
-        induction_mat = induction(self.transform, flow_modes, imposed_flow=True)
-        quasi_inverse = induction_quasi_inverse(nr, maxnl, m)
-        induction_mat = quasi_inverse @ induction_mat
-        diffusion_mat = induction_diffusion(nr, maxnl, m, bc=True)
+        mass_mat = self.induction_eq.mass()
+        induction_mat = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
+        diffusion_mat = self.induction_eq.diffusion(bc=True)
         operators = {'mass': mass_mat, 'induction': induction_mat, 'diffusion': diffusion_mat}
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
@@ -42,15 +39,42 @@ class KinematicDynamo(BaseModel):
         return Rm * operators['induction'] + operators['diffusion'], operators['mass']
 
 
+class InertialModes(BaseModel):
+    def __init__(self, nr, maxnl, m, inviscid: bool, bc_type: str = None):
+        super(InertialModes, self).__init__(nr, maxnl, m, None)
+        self.momentum_eq = MomentumEquation(*self.res, inviscid, bc_type)
+
+    def setup_operator(self, setup_eigen=False, **kwargs):
+        nr, maxnl, m = self.res
+        dim = nr * (maxnl - m)
+        operators = {}
+        operators['mass'] = self.momentum_eq.mass()
+        operators['coriolis'] = self.momentum_eq.coriolis(bc=self.momentum_eq.inviscid)
+        if not self.momentum_eq.inviscid:
+            operators['diffusion'] = scsp.csc_matrix((2 * dim, 2 * dim))
+        if setup_eigen:
+            return self.setup_eigen_problem(operators, **kwargs)
+        else:
+            return operators
+
+    def setup_eigen_problem(self, operators, **kwargs):
+        if not self.momentum_eq.inviscid:
+            ekman = kwargs.get('ekman')
+            return -2*operators['coriolis'] + ekman*operators['diffusion'], operators['mass']
+        else:
+            return -2*operators['coriolis'], operators['mass']
+
+
 class MagnetoCoriolis(BaseModel):
     def __init__(self, nr, maxnl, m, inviscid=True, bc=None):
         super(MagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid)
-        nr, maxnl, m = self.res
         self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=True)
         self.inviscid = inviscid
         if not inviscid:
             assert bc is not None
             self.bc = bc
+        self.induction_eq = InductionEquation(*self.res)
+        self.momentum_eq = MomentumEquation(*self.res, inviscid=inviscid, bc_type=bc)
 
     def setup_operator(self, field_modes: List[SphericalHarmonicMode],
                        flow_modes: Union[None, List[SphericalHarmonicMode]] = None, setup_eigen=False,
@@ -58,25 +82,20 @@ class MagnetoCoriolis(BaseModel):
         if flow_modes is None:
             flow_modes = []
         nr, maxnl, m = self.res
+        dim = nr*(maxnl - m)
         operators = {}
-        induction_qi = induction_quasi_inverse(nr, maxnl, m)
-        momentum_qi = momentum_quasi_inverse(nr, maxnl, m, inviscid=self.inviscid)
-        operators['lorentz'] = momentum_qi @ lorentz(self.transform, field_modes)
-        operators['inductionB'] = induction_qi @ induction(self.transform, field_modes, imposed_flow=False)
-        if len(flow_modes) > 0:
-            operators['advection'] = momentum_qi @ lorentz(self.transform, flow_modes)
-            operators['inductionU'] = induction_qi @ induction(self.transform, flow_modes, imposed_flow=True)
-        else:
-            operators['advection'] = scsp.csc_matrix((nr*(maxnl-m), nr*(maxnl-m)))
-            operators['inductionU'] = scsp.csc_matrix((nr*(maxnl-m), nr*(maxnl-m)))
-        operators['magnetic_diffusion'] = induction_diffusion(nr, maxnl, m, bc=True)
-        operators['coriolis'] = coriolis(nr, maxnl, m, inviscid=self.inviscid, bc=self.inviscid)
+        operators['lorentz'] = self.momentum_eq.lorentz(self.transform, field_modes, quasi_inverse=True)
+        operators['inductionB'] = self.induction_eq.induction(self.transform, field_modes, imposed_flow=False, quasi_inverse=True)
+        operators['advection'] = self.momentum_eq.advection(self.transform, flow_modes, quasi_inverse=True)
+        operators['inductionU'] = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
+        operators['magnetic_diffusion'] = self.induction_eq.diffusion(bc=True)
+        operators['coriolis'] = self.momentum_eq.coriolis(bc=self.inviscid)
         if self.inviscid:
-            operators['viscous_diffusion'] = scsp.csc_matrix((nr * (maxnl - m), nr * (maxnl - m)))
+            operators['viscous_diffusion'] = scsp.csc_matrix((2*dim, 2*dim))
         else:
-            operators['viscous_diffusion'] = viscous_diffusion(nr, maxnl, m, bc=True, bc_type=self.bc)
-        operators['induction_mass'] = induction_mass(nr, maxnl, m)
-        operators['momentum_mass'] = momentum_mass(nr, maxnl, m, inviscid=self.inviscid)
+            operators['viscous_diffusion'] = self.momentum_eq.diffusion(bc=True)
+        operators['induction_mass'] = self.induction_eq.mass()
+        operators['momentum_mass'] = self.momentum_eq.mass()
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
         else:

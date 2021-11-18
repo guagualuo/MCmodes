@@ -12,6 +12,7 @@ src/operators/__pycache__/
 src/notebooks/
 src/test/benchmark.py
 src/test/__pycache__/
+src/operators/quicc_supplements/__pycache__/
 
 # Data folder
 data/
