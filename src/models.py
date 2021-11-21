@@ -52,8 +52,10 @@ class InertialModes(BaseModel):
         operators = {}
         operators['mass'] = self.momentum_eq.mass()
         operators['coriolis'] = self.momentum_eq.coriolis(bc=self.momentum_eq.inviscid)
-        if not self.momentum_eq.inviscid:
+        if self.momentum_eq.inviscid:
             operators['diffusion'] = scsp.csc_matrix((2 * dim, 2 * dim))
+        else:
+            operators['diffusion'] = self.momentum_eq.diffusion(bc=True)
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
         else:
