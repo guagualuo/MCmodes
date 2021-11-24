@@ -16,6 +16,18 @@ def worland_weight(nr):
     return np.pi/(2*nr)
 
 
+def energy_quadrature(nr):
+    """Physical space grids and weights for energy computing. Legendre quadrature"""
+
+    assert nr % 2 == 0, 'we assume even number of grids, so we can use the symmetry'
+    grids, weights = special.roots_jacobi(nr, 0.0, 0.0)
+
+    grids = grids[int(nr/2):nr]
+    weights = weights[int(nr/2):nr]
+
+    return grids, weights
+
+
 def _jacobiP(n, a, b, x):
     """ Compute the value of jacobi polynomial at x """
     return special.eval_jacobi(n, a, b, x)
@@ -39,6 +51,13 @@ def _D2jacobiP(n, a, b, x):
 def _worland(n, l, r_grid):
     """ worland value at radial grids """
     return wb.worland_norm(n, l) * r_grid**l * special.eval_jacobi(n, -0.5, l - 0.5, 2.0 * r_grid ** 2 - 1.0)
+
+def _divrworland(n, l, r_grid):
+    """ worland value at radial grids """
+    if l > 0:
+        return wb.worland_norm(n, l) * r_grid**(l-1) * special.eval_jacobi(n, -0.5, l - 0.5, 2.0 * r_grid ** 2 - 1.0)
+    else:
+        return np.zeros_like(r_grid)
 
 
 def _divrdiffrW(n, l, r_grid):
@@ -77,7 +96,7 @@ def divrW(nr, l, r_grid):
     if l == 0:
         return np.zeros((r_grid.shape[0], nr))
     else:
-        return np.concatenate([(_worland(ni, l, r_grid)/r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+        return np.concatenate([_divrworland(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
 
 
 def divrdiffrW(nr, l, r_grid):
@@ -93,6 +112,51 @@ def diff2rW(nr, l, r_grid):
 def laplacianlW(nr, l, r_grid):
     """ 1/r^2 D(r^2 D ) - l(l+1)/r^2 W_n^l(r) """
     return np.concatenate([_laplacianlW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+
+
+def energy_weight_tor(l, n):
+    """Compute the energy weight matrix at l, given maximum radial mode up to n"""
+    rdegree = l + 2 * n
+    nr = rdegree + 2 + (rdegree + 2) % 2
+
+    grids, weights = energy_quadrature(nr)
+    wmat = np.diag(weights)
+    r2mat = np.diag(grids*grids)
+
+    poly = np.zeros((n + 1, grids.shape[0]))
+    # worland value
+    for i in range(n + 1):
+        norm = wb.worland_norm(i, l)
+        tmp1 = special.eval_jacobi(i, -0.5, l - 0.5, 2.0*grids**2 - 1.0)
+        poly[i, :] = grids**l * tmp1 * norm
+    tormat = l*(l+1)*np.linalg.multi_dot([poly, r2mat, wmat, poly.transpose()])
+    return tormat
+
+
+def energy_weight_pol(l, n):
+    """Compute the energy weight matrix at l, given maximum radial mode up to n, for a velocity field"""
+    rdegree = l + 2 * n
+    nr = rdegree + 2 + (rdegree + 2) % 2
+
+    grids, weights = energy_quadrature(nr)
+    wmat = np.diag(weights)
+
+    poly = np.zeros((n + 1, grids.shape[0]))
+    diff = np.zeros((n + 1, grids.shape[0]))
+
+    # worland value and diff(r * worland)
+    for i in range(n + 1):
+        norm = wb.worland_norm(i, l)
+        tmp1 = special.eval_jacobi(i, -0.5, l - 0.5, 2.0 * grids ** 2 - 1.0)
+        poly[i, :] = grids ** l * tmp1 * norm
+        if i > 0:
+            tmp2 = special.eval_jacobi(i - 1, 0.5, l + 0.5, 2.0 * grids ** 2 - 1.0)
+        else:
+            tmp2 = 0
+        diff[i, :] = (2.0 * (1.0 - 0.5 + l - 0.5 + i) * grids ** (l + 2) * tmp2 + (l + 1) * grids ** l * tmp1) * norm
+    polmat = l ** 2 * (l + 1) ** 2 * np.linalg.multi_dot([poly, wmat, poly.transpose()]) + l * (
+                l + 1) * np.linalg.multi_dot([diff, wmat, diff.transpose()])
+    return polmat
 
 
 class SymOperatorBase(ABC):
@@ -185,6 +249,80 @@ class SymrDiffDivr2Diffr(SymOperatorBase):
         opf = simplify(r*diff(diff(r*expr, r)/r**2, r))
         func = lambdify(r, opf, "numpy")
         return func(r_grid)
+
+
+def alpha(l, m):
+    return np.sqrt(((l - m) * (l + m)) / ((2.0 * l - 1.0) * (2.0 * l + 1.0)) * (l >= m))
+
+
+def lgClm(l, m):
+    return 0.5 * (special.loggamma(l - m + 1) - special.loggamma(l + m + 1) + np.log((2. * l + 1.) / 4. / np.pi))
+
+
+def Plm(m, lmax, theta):
+    """ compute spherical harmonics (excluding the e^{im\phi} term), evaluated on theta grid  """
+    cos_theta = np.cos(theta).reshape(-1, 1)
+
+    if lmax == m:
+        C = np.exp(-0.5 * special.loggamma(2 * m + 1)) * np.sqrt((2. * m + 1.) / (4. * np.pi))
+        val = C * (-1.) ** m * special.factorial2(2 * m - 1) * np.exp(m / 2. * np.log(1. - np.cos(theta) ** 2))
+        return val.reshape(-1, 1)
+    elif lmax > m:
+        vals = []
+        C = np.exp(-0.5 * special.loggamma(2 * m + 1)) * np.sqrt((2. * m + 1.) / (4. * np.pi))
+        tmp = C * (-1.) ** m * special.factorial2(2 * m - 1) * (1. - np.cos(theta) ** 2) ** (m / 2.)
+        vals.append(tmp.reshape(-1, 1))
+        for l in range(m, lmax):
+            if l > m:
+                tmp = (cos_theta * vals[l - m] - alpha(l, m) * vals[l - m - 1]) / alpha(l + 1, m)
+            else:
+                tmp = cos_theta * vals[l - m] / alpha(l + 1, m)
+            vals.append(tmp)
+        return np.concatenate(vals, axis=1)
+
+
+def PlmDivSin(m, lmax, theta):
+    """ compute value of C_l^m P_l^m(\cos\theta) / \sin\theta, on theta, for a single m
+    Only for m > 0 !"""
+
+    plm_m1 = Plm(m - 1, lmax, theta)
+    plm_p1 = Plm(m + 1, lmax, theta)
+
+    val = []
+    for l in range(m, lmax + 1):
+        if l - 1 >= m + 1:
+            tmp = -1. / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m + 1)) * plm_p1[:, l - m - 2] \
+                  - (l + m - 1.) * (l + m) / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m - 1)) * plm_m1[:, l - m]
+        else:
+            tmp = - (l + m - 1.) * (l + m) / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m - 1)) * plm_m1[:, l - m]
+        val.append(tmp.reshape(-1, 1))
+    return np.concatenate(val, axis=1)
+
+
+def DthetaPlm(m, lmax, Plm, PlmDivSin, theta):
+    """ compute value of D_theta C_l^m P_l^m(\cos\theta), for a single m
+    m = 0 compute in a different way """
+
+    sin_theta = np.sin(theta).reshape(-1, 1)
+    # m=0
+    if m == 0:
+        val = [np.zeros(sin_theta.shape), -0.5 * np.sqrt(3. / np.pi) * sin_theta]
+        for l in range(1, lmax):
+            tmp = np.exp(lgClm(l + 1, 0) - lgClm(l - 1, 0)) * val[l - 1] - \
+                  (2. * l + 1.) * np.exp(lgClm(l + 1, 0) - lgClm(l, 0)) * sin_theta * Plm[:, l].reshape(-1, 1)
+            val.append(tmp.reshape(-1, 1))
+        DthetaPlm = np.concatenate(val, axis=1)
+    # m>0
+    else:
+        val = []
+        for l in range(m, lmax + 1):
+            if l > m:
+                tmp = -(l + 1.) * alpha(l, m) * PlmDivSin[:, l - m - 1] + l * alpha(l + 1, m) * PlmDivSin[:, l + 1 - m]
+            else:
+                tmp = l * alpha(l + 1, m) * PlmDivSin[:, l + 1 - m]
+            val.append(tmp.reshape(-1, 1))
+        DthetaPlm = np.concatenate(val, axis=1)
+    return DthetaPlm
 
 
 class SphericalHarmonicMode:

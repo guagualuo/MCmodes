@@ -113,6 +113,7 @@ class MagnetoCoriolis(BaseModel):
 
         if Eeta == 0:
             clu = spla.splu(operators['coriolis'])
+            operators['inv_coriolis'] = clu
             u = clu.solve(operators['lorentz'].toarray())
             operators['ms_induction'] = operators['inductionB'] @ u
 

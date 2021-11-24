@@ -10,20 +10,26 @@ from utils import Timer
 
 
 class WorlandTransform:
-    def __init__(self, nr, maxnl, m, n_grid, require_curl=False):
+    def __init__(self, nr, maxnl, m, n_grid, r_grid=None, require_curl=False, for_visualisation=False):
         self.res = nr, maxnl, m
-        self.n_grid = n_grid
-        if n_grid < nr + maxnl//2 + 10:
-            raise RuntimeWarning("Check if the physical grids is enough")
-        self.r_grid = worland_grid(n_grid)
-        self.weight = np.ones(n_grid) * worland_weight(n_grid)
+        if r_grid is None:
+            self.n_grid = n_grid
+            if n_grid < nr + maxnl//2 + 10:
+                raise RuntimeWarning("Check if the physical grids is enough")
+            self.r_grid = worland_grid(n_grid)
+            self.weight = np.ones(n_grid) * worland_weight(n_grid)
+        else:
+            assert for_visualisation
+            self.r_grid = r_grid
+            self.n_grid = r_grid.shape[0]
+        self.for_visulisation = for_visualisation
 
         # init operators
-        self._init_operators()
+        self._init_operators(for_visualisation)
         if require_curl:
             self._init_curl_op()
 
-    def _init_operators(self):
+    def _init_operators(self, for_visulisation):
         nr, maxnl, m = self.res
         r_grid = self.r_grid
         self.operators = {}
@@ -36,12 +42,16 @@ class WorlandTransform:
         for l in range(m, maxnl):
             mat = worland(nr, l, r_grid)
             self.operators['W'].append(mat)
-            self.operators['divrW'].append(np.array(scsp.diags(1/r_grid) @ mat))
+            # self.operators['divrW'].append(np.array(scsp.diags(1/r_grid) @ mat))
+            self.operators['divrW'].append(divrW(nr, l, r_grid))
             self.operators['divrdiffrW'].append(divrdiffrW(nr, l, r_grid))
             self.operators['diff2rW'].append(diff2rW(nr, l, r_grid))
             self.operators['laplacianlW'].append(laplacianlW(nr, l, r_grid))
         for k, v in self.operators.items():
-            self.operators[k] = np.array(v)
+            if for_visulisation:
+                self.operators[k] = scsp.csc_matrix(scsp.block_diag(v))
+            else:
+                self.operators[k] = np.array(v)
 
     def _init_curl_op(self):
         nr, maxnl, m = self.res
