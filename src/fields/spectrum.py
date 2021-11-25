@@ -104,3 +104,32 @@ class SpectralComponentSingleM(SpectralComponentBase):
         if self.energy_spectrum is not None:
             self.energy_spectrum /= np.abs(factor)**2
 
+
+class VectorFieldSingleM:
+    """ Class for a vector field at single m """
+    def __init__(self, res, m, data: np.ndarray):
+        dim = data.shape[0] // 2
+        self.components = {"tor": SpectralComponentSingleM(res, m, "tor", data[:dim]),
+                           "pol": SpectralComponentSingleM(res, m, "pol", data[dim:])}
+        self.energy_spectrum = 0
+
+    def energy(self):
+        total_energy = 0
+        for comp in self.components.keys():
+            total_energy += self.components[comp].energy()
+        self.energy_spectrum = self.components["tor"].energy_spectrum + self.components["pol"].energy_spectrum
+        return total_energy
+
+    def physical_field(self, worland_transform: WorlandTransform,
+                       legendre_transform: AssociatedLegendreTransformSingleM) -> MeridionalSlice:
+        return self.components["tor"].physical_field(worland_transform, legendre_transform) + \
+            self.components["pol"].physical_field(worland_transform, legendre_transform)
+
+    def normalise(self, factor):
+        for comp in self.components.keys():
+            component = self.components[comp]
+            component.spectrum /= factor
+            if component.energy_spectrum is not None:
+                component.energy_spectrum /= np.abs(factor)**2
+        if self.energy_spectrum is not None:
+            self.energy_spectrum /= np.abs(factor)**2
