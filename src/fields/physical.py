@@ -30,13 +30,21 @@ class MeridionalSlice(PhysicalFieldBase):
             field[comp] = np.real(self.data[comp] * np.exp(1.0j * self.m * phi))
         return field
 
-    def visualise(self, phi=0, name: str = '', title=True, **kwargs):
+    def visualise(self, phi=0, coord: str = 'spherical', name: str = '', title=True, **kwargs):
+        assert coord in ['spherical', 'cylindrical']
         rr, tt = np.meshgrid(self.grid['r'], self.grid['theta'])
         X2 = rr * np.cos(tt)
         X1 = rr * np.sin(tt)
         field = self.at_phi(phi=phi)
-
-        titles = [fr"${name}_r$", fr"${name}_\theta$", fr"${name}_\phi$"]
+        if coord == 'cylindrical':
+            cy_field = {}
+            cy_field['s'] = field['r']*np.sin(tt) + field['theta']*np.cos(tt)
+            cy_field['phi'] = field['phi']
+            cy_field['z'] = field['r']*np.cos(tt) - field['theta']*np.sin(tt)
+            field = cy_field
+            titles = [fr"${name}_s$", fr"${name}_\phi$", fr"${name}_z$"]
+        else:
+            titles = [fr"${name}_r$", fr"${name}_\theta$", fr"${name}_\phi$"]
         if 'ax' in kwargs:
             axes = kwargs['ax']
             assert len(axes) == 3
