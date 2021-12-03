@@ -73,14 +73,15 @@ class InertialModes(BaseModel):
 
 
 class MagnetoCoriolis(BaseModel):
-    def __init__(self, nr, maxnl, m, n_grid, inviscid=True, bc=None):
+    def __init__(self, nr, maxnl, m, n_grid, inviscid=True, bc=None, mag_ideal=False):
         super(MagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid)
         self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=True)
         self.inviscid = inviscid
+        self.mag_ideal = mag_ideal
         if not inviscid:
             assert bc is not None
             self.bc = bc
-        self.induction_eq = InductionEquation(*self.res)
+        self.induction_eq = InductionEquation(*self.res, ideal=mag_ideal)
         self.momentum_eq = MomentumEquation(*self.res, inviscid=inviscid, bc_type=bc)
 
     def setup_operator(self, field_modes: List[SphericalHarmonicMode],
@@ -95,10 +96,13 @@ class MagnetoCoriolis(BaseModel):
         operators['inductionB'] = self.induction_eq.induction(self.transform, field_modes, imposed_flow=False, quasi_inverse=True)
         operators['advection'] = self.momentum_eq.advection(self.transform, flow_modes, quasi_inverse=True)
         operators['inductionU'] = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
-        operators['magnetic_diffusion'] = self.induction_eq.diffusion(bc=True)
+        if self.mag_ideal:
+            operators['magnetic_diffusion'] = scsp.csr_matrix((2*dim, 2*dim))
+        else:
+            operators['magnetic_diffusion'] = self.induction_eq.diffusion(bc=True)
         operators['coriolis'] = self.momentum_eq.coriolis(bc=self.inviscid)
         if self.inviscid:
-            operators['viscous_diffusion'] = scsp.csc_matrix((2*dim, 2*dim))
+            operators['viscous_diffusion'] = scsp.csr_matrix((2*dim, 2*dim))
         else:
             operators['viscous_diffusion'] = self.momentum_eq.diffusion(bc=True)
         operators['induction_mass'] = self.induction_eq.mass()

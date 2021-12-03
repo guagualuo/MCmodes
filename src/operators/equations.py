@@ -19,9 +19,11 @@ class BaseEquation(ABC):
 
 class InductionEquation(BaseEquation):
     """ Operators in the induction equations """
-    def __init__(self, nr, maxnl, m):
+    def __init__(self, nr, maxnl, m, ideal=False):
         super(InductionEquation, self).__init__(nr, maxnl, m)
-        self.bc = {'tor': {0: 10}, 'pol': {0: 13}}
+        self.ideal = ideal
+        if not ideal:
+            self.bc = {'tor': {0: 10}, 'pol': {0: 13}}
 
     def induction(self, transform: WorlandTransform, beta_modes: List[SphericalHarmonicMode],
                   imposed_flow: bool, quasi_inverse: bool):
@@ -44,17 +46,26 @@ class InductionEquation(BaseEquation):
 
     def quasi_inverse(self):
         nr, maxnl, m = self.res
-        return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
-                                geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
+        if self.ideal:
+            return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
+                                    supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
+        else:
+            return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
+                                    geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
 
     def mass(self):
         nr, maxnl, m = self.res
-        return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
-                                geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+        if self.ideal:
+            return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+                                    supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+        else:
+            return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+                                    geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
 
     def diffusion(self, bc=True):
         """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
         nr, maxnl, m = self.res
+        assert self.ideal is False
         if bc:
             return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc['tor'], with_sh_coeff='laplh', l_zero_fix='set'),
                                     geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], with_sh_coeff='laplh', l_zero_fix='set')))
