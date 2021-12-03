@@ -51,11 +51,15 @@ class MeridionalSlice(PhysicalFieldBase):
         else:
             fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
         s = kwargs.get('s', 16)
+        delta = kwargs.get('exclude_BL', None)
+        j = None if delta is None else np.argmax(self.grid['r'] > 1 - delta)-1
         for k, comp in enumerate(field.keys()):
             ax = axes[k]
-            r = np.abs(field[comp]).max()
+            r = np.abs(field[comp]).max() if j is None else np.abs(field[comp][:, :j]).max()
+            vmin = kwargs.get('vmin', -r)
+            vmax = kwargs.get('vmax', r)
             im = ax.pcolormesh(X1, X2, field[comp], shading='gouraud', cmap=plt.get_cmap('coolwarm'),
-                               vmin=-r, vmax=r)
+                               vmin=vmin, vmax=vmax)
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
             cax.tick_params(labelsize=s)
