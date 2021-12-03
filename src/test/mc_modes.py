@@ -21,13 +21,16 @@ model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
-A, B = model.setup_eigen_problem(operators, magnetic_ekman=Eeta, elsasser=elsasser)
+# A, B = model.setup_eigen_problem(operators, magnetic_ekman=Eeta, elsasser=elsasser)
+op_dp, op_qp = model.setup_eigen_problem(operators, magnetic_ekman=Eeta, elsasser=elsasser,
+                                         parity=True, u_parity='opposite')
 
-targets = [0.5779j - 49.45,
-           -41.77j - 88.52,
-           -1.595j - 19.85,
-           74.24j - 192.6]
-test_eig(A, B, targets)
+targets_dp = [0.5779j - 49.45,
+              -1.595j - 19.85,
+              74.24j - 192.6]
+targets_qp = [-41.77j - 88.52]
+test_eig(op_dp[0], op_dp[1], targets_dp)
+test_eig(op_qp[0], op_qp[1], targets_qp)
 
 
 """ Poloidal field m = 3 """
@@ -53,11 +56,13 @@ model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
-A, B = model.setup_eigen_problem(operators, magnetic_ekman=Eeta, elsasser=elsasser)
+# A, B = model.setup_eigen_problem(operators, magnetic_ekman=Eeta, elsasser=elsasser)
+op_dp, op_qp = model.setup_eigen_problem(operators, magnetic_ekman=Eeta, elsasser=elsasser,
+                                         parity=True, u_parity='same')
 
 targets = [8.267j - 71.5,
            339.0j - 674.9]
-test_eig(A, B, targets)
+test_eig(op_qp[0], op_qp[1], targets)
 #
 """ Malkus field m=5 """
 nr, maxnl, m = 45, 45, 5
