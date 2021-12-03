@@ -7,6 +7,7 @@ from operators.worland_transform import WorlandTransform
 from operators.associated_legendre_transform import AssociatedLegendreTransformSingleM
 from fields.physical import *
 from operators.polynomials import energy_weight_tor, energy_weight_pol
+from utils import *
 
 
 class SpectrumOrderingBase(ABC):
@@ -60,6 +61,20 @@ class SpectralComponentSingleM(SpectralComponentBase):
         for l, n, value in modes:
             data[ordering.index(l, n)] = value
         return cls(res, m, component, data)
+
+    @classmethod
+    def from_parity_spectrum(cls, res, m, component, data: np.ndarray, parity):
+        """ given a spectrum with a certain parity, padding with zeros """
+        nr, maxnl = res
+        ordering = SpectrumOrderingSingleM(res, m)
+        sp = np.zeros((ordering.dim,), dtype=np.complex128)
+        a_idx, s_idx = parity_idx(nr, maxnl, m)
+        if component == 'pol':
+            idx = {'dp': a_idx, 'qp': s_idx}
+        else:
+            idx = {'dp': s_idx, 'qp': a_idx}
+        sp[idx[parity]] = data
+        return cls(res, m, component, sp)
 
     def mode_l(self, l):
         a, b = self.ordering.mode_l(l)

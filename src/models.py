@@ -1,9 +1,12 @@
 from abc import ABC, abstractmethod
+
+import numpy as np
 import scipy.sparse.linalg as spla
 from typing import Union, List
 
 from operators.equations import *
 from operators.worland_transform import WorlandTransform
+from utils import *
 
 
 class BaseModel(ABC):
@@ -119,6 +122,12 @@ class MagnetoCoriolis(BaseModel):
 
             B = operators['induction_mass']
             A = elsasser*operators['ms_induction'] + operators['magnetic_diffusion']
+            # separate parity
+            if kwargs.get('parity', False):
+                return self.separate_parity(A, B, b_parity='DP', u_parity=None), \
+                       self.separate_parity(A, B, b_parity='QP', u_parity=None)
+            else:
+                return A, B
         else:
             B = scsp.block_diag((Eeta*operators['momentum_mass'], operators['induction_mass']))
             A = scsp.bmat([[-Eeta*U*operators['advection']-operators['coriolis'] + ekman*operators['viscous_diffusion'],
@@ -126,4 +135,33 @@ class MagnetoCoriolis(BaseModel):
                            [elsasser**0.5*operators['inductionB'],
                             U*operators['inductionU'] + operators['magnetic_diffusion']]
                            ])
-        return A, B
+            # separate parity
+            if kwargs.get('parity', False):
+                return self.separate_parity(A, B, b_parity='DP', u_parity=self.u_parity('DP', kwargs.get('u_parity'))),\
+                       self.separate_parity(A, B, b_parity='QP', u_parity=self.u_parity('QP', kwargs.get('u_parity')))
+            else:
+                return A, B
+
+    def separate_parity(self, A, B, b_parity, u_parity):
+        nr, maxnl, m = self.res
+        dim = 2 * nr * (maxnl-m)
+        A = scsp.lil_matrix(A)
+        B = scsp.lil_matrix(B)
+
+        if u_parity is None:
+            row_idx = vector_parity_idx(nr, maxnl, m, b_parity)
+            col_idx = vector_parity_idx(nr, maxnl, m, b_parity)
+        else:
+            row_idx = np.append(vector_parity_idx(nr, maxnl, m, u_parity),
+                                dim + vector_parity_idx(nr, maxnl, m, b_parity))
+            col_idx = np.append(vector_parity_idx(nr, maxnl, m, u_parity),
+                                dim + vector_parity_idx(nr, maxnl, m, b_parity))
+        return scsp.csr_matrix(A[row_idx[:, None], col_idx]), scsp.coo_matrix(B[row_idx[:, None], col_idx])
+
+    def u_parity(self, b_parity, relation):
+        if relation == 'same':
+            return b_parity
+        else:
+            return 'DP' if b_parity == 'QP' else 'QP'
+
+
