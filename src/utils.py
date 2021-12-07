@@ -62,25 +62,14 @@ def parity_idx(nr, maxnl, m):
     return a_idx, s_idx
 
 
-def vector_parity_idx(nr, maxnl, m, parity):
+def vector_parity_idx(nr, maxnl, m, parity, ngalerkin=0):
     """ idx for parity of a vector field """
-    a_idx, s_idx = parity_idx(nr, maxnl, m)
-    dim = nr * (maxnl - m)
+    a_idx, s_idx = parity_idx(nr-ngalerkin, maxnl, m)
+    dim = (nr-ngalerkin) * (maxnl - m)
     if parity == "DP":
         return np.append(s_idx, dim + a_idx)
     else:
         return np.append(a_idx, dim + s_idx)
-
-
-def restrict_parity(mat, res, row_parity, col_parity):
-    """ separate the parity of a matrix """
-    assert row_parity in ['DP', 'QP'] and col_parity in ['DP', 'QP']
-    nr, maxnl, m = res
-    dim = nr * (maxnl - m)
-    a_idx, s_idx = parity_idx(nr, maxnl, m)
-    rowidx = np.append(s_idx, dim + a_idx) if row_parity == 'DP' else np.append(a_idx, dim + s_idx)
-    colidx = np.append(s_idx, dim + a_idx) if col_parity == 'DP' else np.append(a_idx, dim + s_idx)
-    return mat[rowidx[:, None], colidx]
 
 
 def reciprocal(w1, w2):
