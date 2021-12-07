@@ -9,6 +9,7 @@ from operators.polynomials import SphericalHarmonicMode
 from utils import Timer
 import quicc.geometry.spherical.sphere_worland as geo
 import operators.quicc_supplements.sphere_worland as supp_geo
+import quicc.geometry.spherical.sphere_radius_boundary_worland as wbc
 from quicc.geometry.spherical.sphere_boundary_worland import no_bc
 
 
@@ -19,11 +20,23 @@ class BaseEquation(ABC):
 
 class InductionEquation(BaseEquation):
     """ Operators in the induction equations """
-    def __init__(self, nr, maxnl, m, ideal=False):
+    def __init__(self, nr, maxnl, m, galerkin=False, ideal=False, boundary_condition=True):
         super(InductionEquation, self).__init__(nr, maxnl, m)
         self.ideal = ideal
-        if not ideal:
+        self.galerkin = galerkin
+        if self.ideal and not self.galerkin:
+            raise NotImplementedError("Trying to use tau lines for ideal case")
+        if boundary_condition:
             self.bc = {'tor': {0: 10}, 'pol': {0: 13}}
+            if galerkin:
+                self.bc = {'tor': {0: -10, 'rt': 1}, 'pol': {0: -13, 'rt': 1}}
+        else:
+            # specifically for the Malkus case of MC modes
+            self.bc = None
+            if not ideal:
+                raise RuntimeError("trying to set no boundary condition for a non-ideal case")
+            if galerkin:
+                raise RuntimeError("Trying to set no boundary condition for a galerkin basis")
 
     def induction(self, transform: WorlandTransform, beta_modes: List[SphericalHarmonicMode],
                   imposed_flow: bool, quasi_inverse: bool):
@@ -40,38 +53,92 @@ class InductionEquation(BaseEquation):
             op = sign * scsp.bmat([[tt, ts], [st, ss]], format='csc')
             if quasi_inverse:
                 op = self.quasi_inverse() @ op
+            # apply stencil operator for galerkin basis if the flow is imposed
+            if self.galerkin and imposed_flow:
+                op = op @ self.stencil()
             return op
         else:
-            return scsp.csc_matrix((2*nr*(maxnl-m), 2*nr*(maxnl-m)))
+            if self.galerkin:
+                return scsp.csc_matrix((2*(nr-1)*(maxnl-m), 2*(nr-1)*(maxnl-m)))
+            else:
+                return scsp.csc_matrix((2*nr*(maxnl-m), 2*nr*(maxnl-m)))
+
+    def stencil(self):
+        """stencil operator for galerkin basis"""
+        nr, maxnl, m = self.res
+        assert self.galerkin
+        ops = [wbc.stencil(nr, l, self.bc['tor']) for l in range(m, maxnl)]
+        ops += [wbc.stencil(nr, l, self.bc['pol']) for l in range(m, maxnl)]
+        return scsp.block_diag(ops, format='csc')
+
+    # def projector(self):
+    #     """projection matrix to remove the boundary lines"""
+    #     nr, maxnl, m = self.res
+    #     ops = [wbc.restrict_eye(nr, 'rt', 1) for i in range(2*(maxnl-m))]
+    #     return scsp.block_diag(ops, format='csr')
+
+    # def quasi_inverse(self):
+    #     nr, maxnl, m = self.res
+    #     if self.ideal:
+    #         return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
+    #                                 supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
+    #     else:
+    #         return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
+    #                                 geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
 
     def quasi_inverse(self):
         nr, maxnl, m = self.res
-        if self.ideal:
+        if self.bc is not None:
+            bc = no_bc()
+            # remove top tau line if using galerkin basis
+            if self.galerkin: bc['rt'] = 1
+            return scsp.block_diag((geo.i2(nr, maxnl, m, bc, l_zero_fix='zero'),
+                                    geo.i2(nr, maxnl, m, bc, l_zero_fix='zero')))
+        else:
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
                                     supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
-        else:
-            return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
-                                    geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
+
+    # def mass(self):
+    #     nr, maxnl, m = self.res
+    #     if self.ideal:
+    #         return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+    #                                 supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+    #     else:
+    #         return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+    #                                 geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
 
     def mass(self):
         nr, maxnl, m = self.res
-        if self.ideal:
+        if self.bc is not None:
+            bc = no_bc()
+            if self.galerkin: bc['rt'] = 1
+            i2 = scsp.block_diag((geo.i2(nr, maxnl, m, bc, with_sh_coeff='laplh', l_zero_fix='zero'),
+                                  geo.i2(nr, maxnl, m, bc, with_sh_coeff='laplh', l_zero_fix='zero')))
+            return i2 @ self.stencil() if self.galerkin else i2
+
+        else:
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                                     supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
-        else:
-            return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
-                                    geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
 
-    def diffusion(self, bc=True):
+    # def diffusion(self, bc=True):
+    #     """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
+    #     nr, maxnl, m = self.res
+    #     assert self.ideal is False
+    #     if bc:
+    #         return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc['tor'], with_sh_coeff='laplh', l_zero_fix='set'),
+    #                                 geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], with_sh_coeff='laplh', l_zero_fix='set')))
+    #     else:
+    #         return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+    #                                 geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+
+    def diffusion(self):
         """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
         nr, maxnl, m = self.res
-        assert self.ideal is False
-        if bc:
+        if self.bc is not None:
             return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc['tor'], with_sh_coeff='laplh', l_zero_fix='set'),
                                     geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], with_sh_coeff='laplh', l_zero_fix='set')))
         else:
-            return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
-                                    geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
+            return scsp.coo_matrix((nr*(maxnl-m), nr*(maxnl-m)))
 
 
 class MomentumEquation(BaseEquation):
