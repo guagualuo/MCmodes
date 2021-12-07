@@ -171,3 +171,25 @@ class MagnetoCoriolis(BaseModel):
             return 'DP' if b_parity == 'QP' else 'QP'
 
 
+class IdealMagnetoCoriolis(MagnetoCoriolis):
+    """ Ideal Magneto-Coriolis modes, using the Alfven time scale formulation with Le number """
+    def __init__(self, nr, maxnl, m, n_grid):
+        super(IdealMagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid, inviscid=True,
+                                                   galerkin=True, ideal=True, boundary_condition=True)
+
+    def setup_eigen_problem(self, operators, **kwargs):
+        Le = kwargs.get('lehnert')
+        U = kwargs.get('U', 0)
+        B = scsp.block_diag((operators['momentum_mass'], operators['induction_mass']))
+        A = scsp.bmat(
+            [[-U * operators['advection'] - 2/Le * operators['coriolis'], operators['lorentz']],
+             [operators['inductionB'], U * operators['inductionU']]
+             ])
+        # separate parity
+        if kwargs.get('parity', False):
+            return self.separate_parity(A, B, b_parity='DP', u_parity=self.u_parity('DP', kwargs.get('u_parity'))), \
+                   self.separate_parity(A, B, b_parity='QP', u_parity=self.u_parity('QP', kwargs.get('u_parity')))
+        else:
+            return A, B
+
+
