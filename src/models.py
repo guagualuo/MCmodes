@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import scipy.sparse.linalg as spla
-from typing import Union, List
+from typing import Union, Dict
 
 from operators.equations import *
 from operators.worland_transform import WorlandTransform
@@ -24,15 +24,16 @@ class BaseModel(ABC):
 
 
 class KinematicDynamo(BaseModel):
-    def __init__(self, nr, maxnl, m, n_grid):
+    def __init__(self, nr, maxnl, m, n_grid, **kwargs):
         super(KinematicDynamo, self).__init__(nr, maxnl, m, n_grid)
         self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=False)
-        self.induction_eq = InductionEquation(*self.res)
+        self.eq_setup = kwargs
+        self.induction_eq = InductionEquation(nr, maxnl, m, **self.eq_setup)
 
     def setup_operator(self, flow_modes: List[SphericalHarmonicMode], setup_eigen=False, **kwargs):
         mass_mat = self.induction_eq.mass()
         induction_mat = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
-        diffusion_mat = self.induction_eq.diffusion(bc=True)
+        diffusion_mat = self.induction_eq.diffusion()
         operators = {'mass': mass_mat, 'induction': induction_mat, 'diffusion': diffusion_mat}
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
@@ -73,15 +74,15 @@ class InertialModes(BaseModel):
 
 
 class MagnetoCoriolis(BaseModel):
-    def __init__(self, nr, maxnl, m, n_grid, inviscid=True, bc=None, mag_ideal=False):
+    def __init__(self, nr, maxnl, m, n_grid, inviscid=True, bc=None, **kwargs):
         super(MagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid)
         self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=True)
         self.inviscid = inviscid
-        self.mag_ideal = mag_ideal
+        self.induction_eq_setup = kwargs
         if not inviscid:
             assert bc is not None
             self.bc = bc
-        self.induction_eq = InductionEquation(*self.res, ideal=mag_ideal)
+        self.induction_eq = InductionEquation(*self.res, **self.induction_eq_setup)
         self.momentum_eq = MomentumEquation(*self.res, inviscid=inviscid, bc_type=bc)
 
     def setup_operator(self, field_modes: List[SphericalHarmonicMode],
@@ -93,13 +94,14 @@ class MagnetoCoriolis(BaseModel):
         dim = nr*(maxnl - m)
         operators = {}
         operators['lorentz'] = self.momentum_eq.lorentz(self.transform, field_modes, quasi_inverse=True)
-        operators['inductionB'] = self.induction_eq.induction(self.transform, field_modes, imposed_flow=False, quasi_inverse=True)
+        if self.induction_eq.galerkin:
+            operators['lorentz'] = operators['lorentz'] @ self.induction_eq.stencil()
+        operators['inductionB'] = self.induction_eq.induction(self.transform, field_modes, imposed_flow=False,
+                                                              quasi_inverse=True)
         operators['advection'] = self.momentum_eq.advection(self.transform, flow_modes, quasi_inverse=True)
-        operators['inductionU'] = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
-        if self.mag_ideal:
-            operators['magnetic_diffusion'] = scsp.csr_matrix((2*dim, 2*dim))
-        else:
-            operators['magnetic_diffusion'] = self.induction_eq.diffusion(bc=True)
+        operators['inductionU'] = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True,
+                                                              quasi_inverse=True)
+        operators['magnetic_diffusion'] = self.induction_eq.diffusion()
         operators['coriolis'] = self.momentum_eq.coriolis(bc=self.inviscid)
         if self.inviscid:
             operators['viscous_diffusion'] = scsp.csr_matrix((2*dim, 2*dim))
@@ -148,18 +150,18 @@ class MagnetoCoriolis(BaseModel):
 
     def separate_parity(self, A, B, b_parity, u_parity):
         nr, maxnl, m = self.res
-        dim = 2 * nr * (maxnl-m)
+        dimu = 2 * nr * (maxnl-m)
         A = scsp.lil_matrix(A)
         B = scsp.lil_matrix(B)
 
         if u_parity is None:
-            row_idx = vector_parity_idx(nr, maxnl, m, b_parity)
-            col_idx = vector_parity_idx(nr, maxnl, m, b_parity)
+            row_idx = vector_parity_idx(nr, maxnl, m, b_parity, ngalerkin=int(self.induction_eq.galerkin))
+            col_idx = vector_parity_idx(nr, maxnl, m, b_parity, ngalerkin=int(self.induction_eq.galerkin))
         else:
             row_idx = np.append(vector_parity_idx(nr, maxnl, m, u_parity),
-                                dim + vector_parity_idx(nr, maxnl, m, b_parity))
+                                dimu + vector_parity_idx(nr, maxnl, m, b_parity, ngalerkin=int(self.induction_eq.galerkin)))
             col_idx = np.append(vector_parity_idx(nr, maxnl, m, u_parity),
-                                dim + vector_parity_idx(nr, maxnl, m, b_parity))
+                                dimu + vector_parity_idx(nr, maxnl, m, b_parity, ngalerkin=int(self.induction_eq.galerkin)))
         return scsp.csr_matrix(A[row_idx[:, None], col_idx]), scsp.coo_matrix(B[row_idx[:, None], col_idx])
 
     def u_parity(self, b_parity, relation):
