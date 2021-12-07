@@ -53,7 +53,8 @@ class InductionEquation(BaseEquation):
             op = sign * scsp.bmat([[tt, ts], [st, ss]], format='csc')
             if quasi_inverse:
                 op = self.quasi_inverse() @ op
-            # apply stencil operator for galerkin basis if the flow is imposed
+            # apply stencil operator for galerkin basis if the flow is imposed,
+            # no need to apply stencil if B is imposed in the MC problem
             if self.galerkin and imposed_flow:
                 op = op @ self.stencil()
             return op
@@ -71,21 +72,6 @@ class InductionEquation(BaseEquation):
         ops += [wbc.stencil(nr, l, self.bc['pol']) for l in range(m, maxnl)]
         return scsp.block_diag(ops, format='csc')
 
-    # def projector(self):
-    #     """projection matrix to remove the boundary lines"""
-    #     nr, maxnl, m = self.res
-    #     ops = [wbc.restrict_eye(nr, 'rt', 1) for i in range(2*(maxnl-m))]
-    #     return scsp.block_diag(ops, format='csr')
-
-    # def quasi_inverse(self):
-    #     nr, maxnl, m = self.res
-    #     if self.ideal:
-    #         return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
-    #                                 supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
-    #     else:
-    #         return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
-    #                                 geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
-
     def quasi_inverse(self):
         nr, maxnl, m = self.res
         if self.bc is not None:
@@ -97,15 +83,6 @@ class InductionEquation(BaseEquation):
         else:
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
                                     supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
-
-    # def mass(self):
-    #     nr, maxnl, m = self.res
-    #     if self.ideal:
-    #         return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
-    #                                 supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
-    #     else:
-    #         return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
-    #                                 geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
 
     def mass(self):
         nr, maxnl, m = self.res
@@ -120,21 +97,10 @@ class InductionEquation(BaseEquation):
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                                     supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
 
-    # def diffusion(self, bc=True):
-    #     """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
-    #     nr, maxnl, m = self.res
-    #     assert self.ideal is False
-    #     if bc:
-    #         return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc['tor'], with_sh_coeff='laplh', l_zero_fix='set'),
-    #                                 geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], with_sh_coeff='laplh', l_zero_fix='set')))
-    #     else:
-    #         return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
-    #                                 geo.i2lapl(nr, maxnl, m, bc=no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
-
     def diffusion(self):
         """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
         nr, maxnl, m = self.res
-        if self.bc is not None:
+        if self.bc is not None and not self.ideal:
             return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc['tor'], with_sh_coeff='laplh', l_zero_fix='set'),
                                     geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], with_sh_coeff='laplh', l_zero_fix='set')))
         else:
