@@ -2,6 +2,7 @@ import time
 import scipy.sparse as scsp
 import scipy.sparse.linalg as spla
 import numpy as np
+from scipy.linalg import eig
 
 
 class Timer(object):
@@ -29,6 +30,20 @@ def single_eig(A, B, target, nev=5, tol=1e-14):
     D = spla.LinearOperator(dtype=np.complex128, shape=np.shape(A), matvec=bmx)
     evals, u = spla.eigs(D, k=nev, which='LM', tol=tol)
     return 1.0 / evals + target, u
+
+
+def full_spectrum(A, B):
+    if scsp.issparse(A): A = A.todense()
+    if scsp.issparse(B): B = B.todense()
+    w = eig(A, B, right=False)
+
+    def f(arr):
+        return np.abs(np.imag(arr))
+
+    w[np.abs(w) > 1e+10] = np.inf
+    w = w[~np.isinf(np.abs(w))]
+    w = np.array(sorted(w, key=f), dtype=np.complex128)
+    return w
 
 
 def parity_idx(nr, maxnl, m):

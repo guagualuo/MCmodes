@@ -284,19 +284,21 @@ def Plm(m, lmax, theta):
 def PlmDivSin(m, lmax, theta):
     """ compute value of C_l^m P_l^m(\cos\theta) / \sin\theta, on theta, for a single m
     Only for m > 0 !"""
+    if m > 0:
+        plm_m1 = Plm(m - 1, lmax, theta)
+        plm_p1 = Plm(m + 1, lmax, theta)
 
-    plm_m1 = Plm(m - 1, lmax, theta)
-    plm_p1 = Plm(m + 1, lmax, theta)
-
-    val = []
-    for l in range(m, lmax + 1):
-        if l - 1 >= m + 1:
-            tmp = -1. / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m + 1)) * plm_p1[:, l - m - 2] \
-                  - (l + m - 1.) * (l + m) / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m - 1)) * plm_m1[:, l - m]
-        else:
-            tmp = - (l + m - 1.) * (l + m) / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m - 1)) * plm_m1[:, l - m]
-        val.append(tmp.reshape(-1, 1))
-    return np.concatenate(val, axis=1)
+        val = []
+        for l in range(m, lmax + 1):
+            if l - 1 >= m + 1:
+                tmp = -1. / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m + 1)) * plm_p1[:, l - m - 2] \
+                      - (l + m - 1.) * (l + m) / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m - 1)) * plm_m1[:, l - m]
+            else:
+                tmp = - (l + m - 1.) * (l + m) / (2. * m) * np.exp(lgClm(l, m) - lgClm(l - 1, m - 1)) * plm_m1[:, l - m]
+            val.append(tmp.reshape(-1, 1))
+        return np.concatenate(val, axis=1)
+    else:
+        return np.zeros((theta.shape[0], lmax-m+1))
 
 
 def DthetaPlm(m, lmax, Plm, PlmDivSin, theta):
