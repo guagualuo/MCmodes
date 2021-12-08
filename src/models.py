@@ -84,6 +84,10 @@ class MagnetoCoriolis(BaseModel):
             self.bc = bc
         self.induction_eq = InductionEquation(*self.res, **self.induction_eq_setup)
         self.momentum_eq = MomentumEquation(*self.res, inviscid=inviscid, bc_type=bc)
+        if self.induction_eq.galerkin:
+            self.dim = {'u': 2*nr*(maxnl-m), 'b': 2*(nr-1)*(maxnl-m)}
+        else:
+            self.dim = {'u': 2*nr*(maxnl-m), 'b': 2*nr*(maxnl - m)}
 
     def setup_operator(self, field_modes: List[SphericalHarmonicMode],
                        flow_modes: Union[None, List[SphericalHarmonicMode]] = None, setup_eigen=False,
