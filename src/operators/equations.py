@@ -24,8 +24,6 @@ class InductionEquation(BaseEquation):
         super(InductionEquation, self).__init__(nr, maxnl, m)
         self.ideal = ideal
         self.galerkin = galerkin
-        if self.ideal and not self.galerkin:
-            raise NotImplementedError("Trying to use tau lines for ideal case")
         if boundary_condition:
             self.bc = {'tor': {0: 10}, 'pol': {0: 13}}
             if galerkin:
