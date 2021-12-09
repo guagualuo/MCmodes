@@ -48,10 +48,10 @@ class WorlandTransform:
             self.operators['diff2rW'].append(diff2rW(nr, l, r_grid))
             self.operators['laplacianlW'].append(laplacianlW(nr, l, r_grid))
         for k, v in self.operators.items():
-            if for_visulisation:
-                self.operators[k] = scsp.csc_matrix(scsp.block_diag(v))
-            else:
-                self.operators[k] = np.array(v)
+            # if for_visulisation:
+            self.operators[k] = scsp.csc_matrix(scsp.block_diag(v))
+            # else:
+            #     self.operators[k] = np.array(v)
 
     def _init_curl_op(self):
         nr, maxnl, m = self.res
@@ -60,7 +60,8 @@ class WorlandTransform:
             self.transformers['curl'].append(np.array(self.operators['W'][i].T @ scsp.diags(self.weight) @
                                                       self.operators['laplacianlW'][i]))
         for k, v in self.transformers.items():
-            self.transformers[k] = np.array(v)
+            # self.transformers[k] = np.array(v)
+            self.transformers[k] = scsp.csc_matrix(scsp.block_diag(v))
 
     # def _compute_per_l_block(self, la, lg, beta_mode, beta_op: SymOperatorBase, alpha_op: str, factor):
     #     """ compute single combination of la, lg """
@@ -86,27 +87,37 @@ class WorlandTransform:
     #                 blocks.append(mat)
     #     return scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
 
-    @staticmethod
-    @njit
-    def _compute_block_numba1(left_ops, right_ops, weight, factor_mat):
-        ops = []
-        for i in range(left_ops.shape[0]):
-            for j in range(left_ops.shape[0]):
-                if factor_mat[i, j] != 0:
-                    mat = left_ops[i].T @ weight @ right_ops[j]
-                    ops.append(factor_mat[i, j] * mat)
-        return ops
+    # @staticmethod
+    # @njit
+    # def _compute_block_numba1(left_ops, right_ops, weight, factor_mat):
+    #     ops = []
+    #     for i in range(left_ops.shape[0]):
+    #         for j in range(left_ops.shape[0]):
+    #             if factor_mat[i, j] != 0:
+    #                 mat = left_ops[i].T @ weight @ right_ops[j]
+    #                 ops.append(factor_mat[i, j] * mat)
+    #     return ops
 
     @staticmethod
-    @njit
-    def _compute_block_numba2(left_ops, right_ops, transformer, weight, factor_mat):
-        ops = []
-        for i in range(left_ops.shape[0]):
-            for j in range(left_ops.shape[0]):
-                if factor_mat[i, j] != 0:
-                    mat = left_ops[i].T @ weight @ right_ops[j] @ transformer[j]
-                    ops.append(factor_mat[i, j] * mat)
-        return ops
+    def _compute_block_numba1(left_op, right_op, weight, factor_mat):
+        weight = scsp.kron(factor_mat, weight)
+        return left_op.T @ weight @ right_op
+
+    # @staticmethod
+    # @njit
+    # def _compute_block_numba2(left_ops, right_ops, transformer, weight, factor_mat):
+    #     ops = []
+    #     for i in range(left_ops.shape[0]):
+    #         for j in range(left_ops.shape[0]):
+    #             if factor_mat[i, j] != 0:
+    #                 mat = left_ops[i].T @ weight @ right_ops[j] @ transformer[j]
+    #                 ops.append(factor_mat[i, j] * mat)
+    #     return ops
+
+    @staticmethod
+    def _compute_block_numba2(left_op, right_op, transformer, weight, factor_mat):
+        weight = scsp.kron(factor_mat, weight)
+        return left_op.T @ weight @ right_op @ transformer
 
     def _compute_block(self, beta_mode: SphericalHarmonicMode, sh_factor: Dict, terms: List[Tuple]):
         """ compute matrix for all l """
@@ -120,27 +131,34 @@ class WorlandTransform:
             else:
                 beta_op, alpha_op, factor, transformer = term
             radial = beta_op.apply(beta_mode.radial_expr, self.r_grid)
-            weight = np.diag(self.weight * radial)
+            # weight = np.diag(self.weight * radial)
+            weight = scsp.diags(self.weight * radial)
             factor_mat = np.zeros((maxnl-m, maxnl-m), dtype=np.complex128)
             for i, lg in enumerate(range(m, maxnl)):
                 for j, la in enumerate(range(m, maxnl)):
                     factor_mat[i, j] = factor(la, lb, lg) * sh_factor[(lg, la)]
 
-            if transformer is None:
-                nonzero_ops = self._compute_block_numba1(self.operators['W'], self.operators[alpha_op], weight, factor_mat)
-            else:
-                nonzero_ops = self._compute_block_numba2(self.operators['W'], self.operators[alpha_op],
-                                                         self.transformers[transformer], weight, factor_mat)
+            # if transformer is None:
+            #     nonzero_ops = self._compute_block_numba1(self.operators['W'], self.operators[alpha_op], weight, factor_mat)
+            # else:
+            #     nonzero_ops = self._compute_block_numba2(self.operators['W'], self.operators[alpha_op],
+            #                                              self.transformers[transformer], weight, factor_mat)
+            #
+            # k, blocks = 0, []
+            # for i, lg in enumerate(range(m, maxnl)):
+            #     for j, la in enumerate(range(m, maxnl)):
+            #         if factor_mat[i, j] == 0:
+            #             blocks.append(scsp.csc_matrix((nr, nr)))
+            #         else:
+            #             blocks.append(nonzero_ops[k])
+            #             k += 1
+            # mat += scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
 
-            k, blocks = 0, []
-            for i, lg in enumerate(range(m, maxnl)):
-                for j, la in enumerate(range(m, maxnl)):
-                    if factor_mat[i, j] == 0:
-                        blocks.append(scsp.csc_matrix((nr, nr)))
-                    else:
-                        blocks.append(nonzero_ops[k])
-                        k += 1
-            mat += scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
+            if transformer is None:
+                mat += self._compute_block_numba1(self.operators['W'], self.operators[alpha_op], weight, factor_mat)
+            else:
+                mat += self._compute_block_numba2(self.operators['W'], self.operators[alpha_op],
+                                                         self.transformers[transformer], weight, factor_mat)
         return mat
 
     def curl1tt(self, beta_mode: SphericalHarmonicMode):
