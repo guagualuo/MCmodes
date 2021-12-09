@@ -12,6 +12,8 @@ from utils import *
 class BaseModel(ABC):
     def __init__(self, nr, maxnl, m, n_grid, *args, **kwargs):
         self.res = (nr, maxnl, m)
+        if n_grid is None:
+            n_grid = nr + maxnl//2 + 11
         self.n_grid = n_grid
 
     @abstractmethod
@@ -24,9 +26,9 @@ class BaseModel(ABC):
 
 
 class KinematicDynamo(BaseModel):
-    def __init__(self, nr, maxnl, m, n_grid, **kwargs):
+    def __init__(self, nr, maxnl, m, n_grid=None, **kwargs):
         super(KinematicDynamo, self).__init__(nr, maxnl, m, n_grid)
-        self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=False)
+        self.transform = WorlandTransform(nr, maxnl, m, self.n_grid, require_curl=False)
         self.eq_setup = kwargs
         self.induction_eq = InductionEquation(nr, maxnl, m, **self.eq_setup)
 
@@ -74,9 +76,9 @@ class InertialModes(BaseModel):
 
 
 class MagnetoCoriolis(BaseModel):
-    def __init__(self, nr, maxnl, m, n_grid, inviscid=True, bc=None, **kwargs):
+    def __init__(self, nr, maxnl, m, n_grid=None, inviscid=True, bc=None, **kwargs):
         super(MagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid)
-        self.transform = WorlandTransform(nr, maxnl, m, n_grid, require_curl=True)
+        self.transform = WorlandTransform(nr, maxnl, m, self.n_grid, require_curl=True)
         self.inviscid = inviscid
         self.induction_eq_setup = kwargs
         if not inviscid:
@@ -177,9 +179,12 @@ class MagnetoCoriolis(BaseModel):
 
 class IdealMagnetoCoriolis(MagnetoCoriolis):
     """ Ideal Magneto-Coriolis modes, using the Alfven time scale formulation with Le number """
-    def __init__(self, nr, maxnl, m, n_grid):
+    def __init__(self, nr, maxnl, m, n_grid=None, **kwargs):
+        # default using a galerkin basis, but can be used with no boundary condition
         super(IdealMagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid, inviscid=True,
-                                                   galerkin=True, ideal=True, boundary_condition=True)
+                                                   galerkin=kwargs.get('galerkin', True),
+                                                   ideal=True,
+                                                   boundary_condition=kwargs.get('boundary_condition', True))
 
     def setup_eigen_problem(self, operators, **kwargs):
         Le = kwargs.get('lehnert')
@@ -197,3 +202,49 @@ class IdealMagnetoCoriolis(MagnetoCoriolis):
             return A, B
 
 
+class TorsionalOscillation(MagnetoCoriolis):
+    """ torsional oscillation with magnetic diffusion and possibly with viscous diffusion
+        Non-dimensional parameters are Le, Lu and Pm """
+    def __init__(self, nr, maxnl, inviscid=True, n_grid=None, **kwargs):
+        super(TorsionalOscillation, self).__init__(nr, maxnl, 0, n_grid, inviscid=inviscid,
+                                                   galerkin=kwargs.get('galerkin', True))
+
+    def setup_eigen_problem(self, operators, **kwargs):
+        Le = kwargs.get('lehnert')
+        Lu = kwargs.get('lundquist')
+        Pm = kwargs.get('pm', 0)
+        U = kwargs.get('U', 0)
+        B = scsp.block_diag((operators['momentum_mass'], operators['induction_mass']))
+        A = scsp.bmat(
+            [[-U * operators['advection'] - 2 / Le * operators['coriolis'] + Pm/Lu*operators['viscous_diffusion'],
+              operators['lorentz']],
+             [operators['inductionB'], U * operators['inductionU'] + 1/Lu*operators['magnetic_diffusion']]
+             ])
+        # separate parity
+        if kwargs.get('parity', False):
+            return self.separate_parity(A, B, b_parity='DP', u_parity=self.u_parity('DP', kwargs.get('u_parity'))), \
+                   self.separate_parity(A, B, b_parity='QP', u_parity=self.u_parity('QP', kwargs.get('u_parity')))
+        else:
+            return A, B
+
+
+class IdealTorsionalOscillation(IdealMagnetoCoriolis):
+    """ torsional oscillation with no diffusion """
+    def __init__(self, nr, maxnl, n_grid=None, **kwargs):
+        super(IdealTorsionalOscillation, self).__init__(nr, maxnl, 0, n_grid, **kwargs)
+
+    def setup_eigen_problem(self, operators, **kwargs):
+        Le = kwargs.get('lehnert')
+        U = kwargs.get('U', 0)
+        B = scsp.block_diag((operators['momentum_mass'], operators['induction_mass']))
+        A = scsp.bmat(
+            [[-U * operators['advection'] - 2 / Le * operators['coriolis'],
+              operators['lorentz']],
+             [operators['inductionB'], U * operators['inductionU']]
+             ])
+        # separate parity
+        if kwargs.get('parity', False):
+            return self.separate_parity(A, B, b_parity='DP', u_parity=self.u_parity('DP', kwargs.get('u_parity'))), \
+                   self.separate_parity(A, B, b_parity='QP', u_parity=self.u_parity('QP', kwargs.get('u_parity')))
+        else:
+            return A, B
