@@ -16,9 +16,8 @@ def slow(wi, elsasser, magnetic_ekman, m):
 
 
 nr, maxnl, m = 21, 21, 1
-n_grid = 60
 field_modes = [SphericalHarmonicMode("tor", 1, 0, "2 Sqrt[pi/3] r")]
-model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True, mag_ideal=True)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True, galerkin=False, ideal=True, boundary_condition=False)
 operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
 
 Eeta = 1e-4

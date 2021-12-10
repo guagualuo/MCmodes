@@ -10,7 +10,7 @@ from utils import Timer
 
 
 class WorlandTransform:
-    def __init__(self, nr, maxnl, m, n_grid, r_grid=None, require_curl=False, for_visualisation=False):
+    def __init__(self, nr, maxnl, m, n_grid, r_grid=None, require_curl=False):
         self.res = nr, maxnl, m
         if r_grid is None:
             self.n_grid = n_grid
@@ -19,17 +19,15 @@ class WorlandTransform:
             self.r_grid = worland_grid(n_grid)
             self.weight = np.ones(n_grid) * worland_weight(n_grid)
         else:
-            assert for_visualisation
             self.r_grid = r_grid
             self.n_grid = r_grid.shape[0]
-        self.for_visulisation = for_visualisation
 
         # init operators
-        self._init_operators(for_visualisation)
+        self._init_operators()
         if require_curl:
             self._init_curl_op()
 
-    def _init_operators(self, for_visulisation):
+    def _init_operators(self, ):
         nr, maxnl, m = self.res
         r_grid = self.r_grid
         self.operators = {}
@@ -42,77 +40,22 @@ class WorlandTransform:
         for l in range(m, maxnl):
             mat = worland(nr, l, r_grid)
             self.operators['W'].append(mat)
-            # self.operators['divrW'].append(np.array(scsp.diags(1/r_grid) @ mat))
             self.operators['divrW'].append(divrW(nr, l, r_grid))
             self.operators['divrdiffrW'].append(divrdiffrW(nr, l, r_grid))
             self.operators['diff2rW'].append(diff2rW(nr, l, r_grid))
             self.operators['laplacianlW'].append(laplacianlW(nr, l, r_grid))
         for k, v in self.operators.items():
-            # if for_visulisation:
             self.operators[k] = scsp.csc_matrix(scsp.block_diag(v))
-            # else:
-            #     self.operators[k] = np.array(v)
 
     def _init_curl_op(self):
         nr, maxnl, m = self.res
-        self.transformers['curl'] = []
-        for i, l in enumerate(range(m, maxnl)):
-            self.transformers['curl'].append(np.array(self.operators['W'][i].T @ scsp.diags(self.weight) @
-                                                      self.operators['laplacianlW'][i]))
-        for k, v in self.transformers.items():
-            # self.transformers[k] = np.array(v)
-            self.transformers[k] = scsp.csc_matrix(scsp.block_diag(v))
-
-    # def _compute_per_l_block(self, la, lg, beta_mode, beta_op: SymOperatorBase, alpha_op: str, factor):
-    #     """ compute single combination of la, lg """
-    #     radial = beta_op.apply(beta_mode.radial_expr, self.r_grid)
-    #     weight = scsp.diags(factor * self.weight * radial)
-    #     return self.operators['W'][lg].T @ weight @ self.operators[alpha_op][la]
-
-    # def _compute_block(self, beta_mode: SphericalHarmonicMode, sh_factor: Dict, terms: List[Tuple]):
-    #     """ compute matrix for all l """
-    #     nr, maxnl, m = self.res
-    #     lb = beta_mode.l
-    #     blocks = []
-    #     for lg in range(m, maxnl):
-    #         for la in range(m, maxnl):
-    #             if sh_factor[(lg, la)] == 0:
-    #                 blocks.append(scsp.csc_matrix((nr, nr)))
-    #             else:
-    #                 mat = scsp.csc_matrix((nr, nr))
-    #                 for term in terms:
-    #                     beta_op, alpha_op, factor = term
-    #                     mat += self._compute_per_l_block(la, lg, beta_mode, beta_op, alpha_op,
-    #                                                      factor(la, lb, lg)*sh_factor[(lg, la)])
-    #                 blocks.append(mat)
-    #     return scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
-
-    # @staticmethod
-    # @njit
-    # def _compute_block_numba1(left_ops, right_ops, weight, factor_mat):
-    #     ops = []
-    #     for i in range(left_ops.shape[0]):
-    #         for j in range(left_ops.shape[0]):
-    #             if factor_mat[i, j] != 0:
-    #                 mat = left_ops[i].T @ weight @ right_ops[j]
-    #                 ops.append(factor_mat[i, j] * mat)
-    #     return ops
+        weight = scsp.kron(scsp.identity(maxnl-m), scsp.diags(self.weight))
+        self.transformers['curl'] = self.operators['W'].T @ weight @ self.operators['laplacianlW']
 
     @staticmethod
     def _compute_block_numba1(left_op, right_op, weight, factor_mat):
         weight = scsp.kron(factor_mat, weight)
         return left_op.T @ weight @ right_op
-
-    # @staticmethod
-    # @njit
-    # def _compute_block_numba2(left_ops, right_ops, transformer, weight, factor_mat):
-    #     ops = []
-    #     for i in range(left_ops.shape[0]):
-    #         for j in range(left_ops.shape[0]):
-    #             if factor_mat[i, j] != 0:
-    #                 mat = left_ops[i].T @ weight @ right_ops[j] @ transformer[j]
-    #                 ops.append(factor_mat[i, j] * mat)
-    #     return ops
 
     @staticmethod
     def _compute_block_numba2(left_op, right_op, transformer, weight, factor_mat):
@@ -137,22 +80,6 @@ class WorlandTransform:
             for i, lg in enumerate(range(m, maxnl)):
                 for j, la in enumerate(range(m, maxnl)):
                     factor_mat[i, j] = factor(la, lb, lg) * sh_factor[(lg, la)]
-
-            # if transformer is None:
-            #     nonzero_ops = self._compute_block_numba1(self.operators['W'], self.operators[alpha_op], weight, factor_mat)
-            # else:
-            #     nonzero_ops = self._compute_block_numba2(self.operators['W'], self.operators[alpha_op],
-            #                                              self.transformers[transformer], weight, factor_mat)
-            #
-            # k, blocks = 0, []
-            # for i, lg in enumerate(range(m, maxnl)):
-            #     for j, la in enumerate(range(m, maxnl)):
-            #         if factor_mat[i, j] == 0:
-            #             blocks.append(scsp.csc_matrix((nr, nr)))
-            #         else:
-            #             blocks.append(nonzero_ops[k])
-            #             k += 1
-            # mat += scsp.bmat(np.reshape(np.array(blocks, dtype=object), (maxnl-m, maxnl-m)), format='csc')
 
             if transformer is None:
                 mat += self._compute_block_numba1(self.operators['W'], self.operators[alpha_op], weight, factor_mat)

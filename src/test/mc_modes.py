@@ -15,10 +15,9 @@ elsasser = 1
 
 """ Poloidal field m = 1 """
 nr, maxnl, m = 41, 41, 1
-n_grid = 100
 field_modes = [SphericalHarmonicMode("pol", 1, 0, "1/5 Sqrt[pi/3] r(5-3r^2)")]
-# model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
-model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
+# model = MagnetoCoriolis(nr, maxnl, m, inviscid=True)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
@@ -36,10 +35,9 @@ test_eig(op_qp[0], op_qp[1], targets_qp)
 
 """ Poloidal field m = 3 """
 nr, maxnl, m = 43, 43, 3
-n_grid = 100
 field_modes = [SphericalHarmonicMode("pol", 1, 0, "1/5 Sqrt[pi/3] r(5-3r^2)")]
-# model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
-model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
+# model = MagnetoCoriolis(nr, maxnl, m, inviscid=True)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
@@ -52,10 +50,9 @@ test_eig(A, B, targets)
 
 """ Malkus field m=1 """
 nr, maxnl, m = 41, 41, 1
-n_grid = 100
 field_modes = [SphericalHarmonicMode("tor", 1, 0, "2 Sqrt[pi/3] r")]
-# model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
-model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
+# model = MagnetoCoriolis(nr, maxnl, m, inviscid=True)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
@@ -69,9 +66,8 @@ test_eig(op_qp[0], op_qp[1], targets)
 
 """ Malkus field m=5 """
 nr, maxnl, m = 45, 45, 5
-n_grid = 100
 field_modes = [SphericalHarmonicMode("tor", 1, 0, "2 Sqrt[pi/3] r")]
-model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
@@ -84,10 +80,9 @@ test_eig(A, B, targets)
 
 """ Toroidal m=1 """
 nr, maxnl, m = 41, 41, 1
-n_grid = 100
 field_modes = [SphericalHarmonicMode("tor", 1, 0, "3 Sqrt[pi] r(1-r^2)")]
-# model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
-model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
+# model = MagnetoCoriolis(nr, maxnl, m, inviscid=True)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True, galerkin=True, ideal=False, boundary_condition=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
@@ -100,9 +95,8 @@ test_eig(A, B, targets)
 
 """ Toroidal m=3 """
 nr, maxnl, m = 43, 43, 3
-n_grid = 100
 field_modes = [SphericalHarmonicMode("tor", 1, 0, "3 Sqrt[pi] r(1-r^2)")]
-model = MagnetoCoriolis(nr, maxnl, m, n_grid, inviscid=True)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True)
 
 with Timer('build operators'):
     operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)

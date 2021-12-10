@@ -11,26 +11,24 @@ LJt10 = SphericalHarmonicMode("tor", 1, 0, "8.107929179422066 * r(1 - r^2)")
 LJs20 = SphericalHarmonicMode("pol", 2, 0, "1.193271237996972 * r^2 (1 - r^2)^2")
 
 """ D.J. t1s1 """
-nr, maxnl, m = 31, 31, 1
-n_grid = 100
-# model = KinematicDynamo(nr, maxnl, m, n_grid=n_grid)
-model = KinematicDynamo(nr, maxnl, m, n_grid=n_grid, galerkin=True, ideal=False, boundary_condition=True)
+nr, maxnl, m = 41, 41, 1
+# model = KinematicDynamo(nr, maxnl, m)
+model = KinematicDynamo(nr, maxnl, m, galerkin=True, ideal=False, boundary_condition=True)
 with Timer("build op"):
     A, B = model.setup_operator(flow_modes=[t10, s10], setup_eigen=True, Rm=160)
 
 w, _ = single_eig(A, B, target=0.313-34.84j)
 print(w[0])
 
-# """ Modified D.J. t1s2 """
-# nr, maxnl, m = 41, 41, 0
-# n_grid = 100
-# model = KinematicDynamo(nr, maxnl, m, n_grid=n_grid)
-# # model = KinematicDynamo(nr, maxnl, m, n_grid=n_grid, galerkin=True, ideal=False, boundary_condition=True)
-# with Timer("build op"):
-#     operators = model.setup_operator(flow_modes=[LJt10, LJs20], setup_eigen=False)
-#
-# Rm = 100
-# A = Rm*operators['induction'] + operators['diffusion']
-# B = operators['mass']
-# w, _ = single_eig(A, B, target=-6.9)
-# print(w[0])
+""" Modified D.J. t1s2 """
+nr, maxnl, m = 41, 41, 0
+model = KinematicDynamo(nr, maxnl, m)
+# model = KinematicDynamo(nr, maxnl, m, galerkin=True, ideal=False, boundary_condition=True)
+with Timer("build op"):
+    operators = model.setup_operator(flow_modes=[LJt10, LJs20], setup_eigen=False)
+
+Rm = 100
+A = Rm*operators['induction'] + operators['diffusion']
+B = operators['mass']
+w, _ = single_eig(A, B, target=-6.9)
+print(w[0])

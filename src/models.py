@@ -33,10 +33,10 @@ class KinematicDynamo(BaseModel):
         self.induction_eq = InductionEquation(nr, maxnl, m, **self.eq_setup)
 
     def setup_operator(self, flow_modes: List[SphericalHarmonicMode], setup_eigen=False, **kwargs):
-        mass_mat = self.induction_eq.mass()
         induction_mat = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
-        diffusion_mat = self.induction_eq.diffusion()
-        operators = {'mass': mass_mat, 'induction': induction_mat, 'diffusion': diffusion_mat}
+        operators = {'mass': self.induction_eq.mass,
+                     'induction': induction_mat,
+                     'diffusion': self.induction_eq.diffusion}
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
         else:
@@ -56,12 +56,12 @@ class InertialModes(BaseModel):
         nr, maxnl, m = self.res
         dim = nr * (maxnl - m)
         operators = {}
-        operators['mass'] = self.momentum_eq.mass()
-        operators['coriolis'] = self.momentum_eq.coriolis(bc=self.momentum_eq.inviscid)
+        operators['mass'] = self.momentum_eq.mass
+        operators['coriolis'] = self.momentum_eq.coriolis
         if self.momentum_eq.inviscid:
             operators['diffusion'] = scsp.csc_matrix((2 * dim, 2 * dim))
         else:
-            operators['diffusion'] = self.momentum_eq.diffusion(bc=True)
+            operators['diffusion'] = self.momentum_eq.diffusion
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
         else:
@@ -101,20 +101,20 @@ class MagnetoCoriolis(BaseModel):
         operators = {}
         operators['lorentz'] = self.momentum_eq.lorentz(self.transform, field_modes, quasi_inverse=True)
         if self.induction_eq.galerkin:
-            operators['lorentz'] = operators['lorentz'] @ self.induction_eq.stencil()
+            operators['lorentz'] = operators['lorentz'] @ self.induction_eq.stencil
         operators['inductionB'] = self.induction_eq.induction(self.transform, field_modes, imposed_flow=False,
                                                               quasi_inverse=True)
         operators['advection'] = self.momentum_eq.advection(self.transform, flow_modes, quasi_inverse=True)
         operators['inductionU'] = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True,
                                                               quasi_inverse=True)
-        operators['magnetic_diffusion'] = self.induction_eq.diffusion()
-        operators['coriolis'] = self.momentum_eq.coriolis(bc=self.inviscid)
+        operators['magnetic_diffusion'] = self.induction_eq.diffusion
+        operators['coriolis'] = self.momentum_eq.coriolis
         if self.inviscid:
             operators['viscous_diffusion'] = scsp.csr_matrix((2*dim, 2*dim))
         else:
-            operators['viscous_diffusion'] = self.momentum_eq.diffusion(bc=True)
-        operators['induction_mass'] = self.induction_eq.mass()
-        operators['momentum_mass'] = self.momentum_eq.mass()
+            operators['viscous_diffusion'] = self.momentum_eq.diffusion
+        operators['induction_mass'] = self.induction_eq.mass
+        operators['momentum_mass'] = self.momentum_eq.mass
         if setup_eigen:
             return self.setup_eigen_problem(operators, **kwargs)
         else:

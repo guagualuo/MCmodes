@@ -94,7 +94,6 @@ class SpectralComponentSingleM(SpectralComponentBase):
 
     def physical_field(self, worland_transform: WorlandTransform,
                        legendre_transform: AssociatedLegendreTransformSingleM):
-        assert worland_transform.for_visulisation
         m = self.ordering.m
         maxnl = self.ordering.maxnl
         nrg = worland_transform.r_grid.shape[0]

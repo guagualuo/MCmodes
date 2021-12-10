@@ -159,7 +159,7 @@ if __name__ == "__main__":
     r_grid = np.linspace(0, 1.0, nrg)
     theta_grid = np.linspace(-np.pi/ntg/2, np.pi+np.pi/ntg/2, ntg)
     with Timer("transforms"):
-        worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid, for_visualisation=True)
+        worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
         legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
 
         sp = SpectralComponentSingleM.from_modes((11, 21), 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])

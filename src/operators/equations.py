@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import List
 import scipy.sparse as scsp
-from abc import ABC
+from abc import ABC, abstractmethod
 
 from operators.worland_transform import WorlandTransform
 from operators.polynomials import SphericalHarmonicMode
@@ -16,6 +16,11 @@ from quicc.geometry.spherical.sphere_boundary_worland import no_bc
 class BaseEquation(ABC):
     def __init__(self, nr, maxnl, m):
         self.res = nr, maxnl, m
+
+    @abstractmethod
+    def _init_operators(self):
+        """ Initialise operators that requires no physical transformations. """
+        pass
 
 
 class InductionEquation(BaseEquation):
@@ -35,6 +40,15 @@ class InductionEquation(BaseEquation):
                 raise RuntimeError("trying to set no boundary condition for a non-ideal case")
             if galerkin:
                 raise RuntimeError("Trying to set no boundary condition for a galerkin basis")
+        # initialise simple linear operators
+        self._init_operators()
+
+    def _init_operators(self):
+        if self.galerkin:
+            self._stencil = self.create_stencil()
+        self._mass = self.create_mass()
+        self._quasi_inverse = self.create_quasi_inverse()
+        self._diffusion = self.create_diffusion()
 
     def induction(self, transform: WorlandTransform, beta_modes: List[SphericalHarmonicMode],
                   imposed_flow: bool, quasi_inverse: bool):
@@ -50,11 +64,11 @@ class InductionEquation(BaseEquation):
             sign = -1.0 if imposed_flow else 1.0
             op = sign * scsp.bmat([[tt, ts], [st, ss]], format='csc')
             if quasi_inverse:
-                op = self.quasi_inverse() @ op
+                op = self.quasi_inverse @ op
             # apply stencil operator for galerkin basis if the flow is imposed,
             # no need to apply stencil if B is imposed in the MC problem
             if self.galerkin and imposed_flow:
-                op = op @ self.stencil()
+                op = op @ self.stencil
             return op
         else:
             if self.galerkin:
@@ -62,7 +76,7 @@ class InductionEquation(BaseEquation):
             else:
                 return scsp.csc_matrix((2*nr*(maxnl-m), 2*nr*(maxnl-m)))
 
-    def stencil(self):
+    def create_stencil(self):
         """stencil operator for galerkin basis"""
         nr, maxnl, m = self.res
         assert self.galerkin
@@ -70,7 +84,7 @@ class InductionEquation(BaseEquation):
         ops += [wbc.stencil(nr, l, self.bc['pol']) for l in range(m, maxnl)]
         return scsp.block_diag(ops, format='csc')
 
-    def quasi_inverse(self):
+    def create_quasi_inverse(self):
         nr, maxnl, m = self.res
         if self.bc is not None:
             bc = no_bc()
@@ -82,27 +96,43 @@ class InductionEquation(BaseEquation):
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
                                     supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
 
-    def mass(self):
+    def create_mass(self):
         nr, maxnl, m = self.res
         if self.bc is not None:
             bc = no_bc()
             if self.galerkin: bc['rt'] = 1
             i2 = scsp.block_diag((geo.i2(nr, maxnl, m, bc, with_sh_coeff='laplh', l_zero_fix='zero'),
                                   geo.i2(nr, maxnl, m, bc, with_sh_coeff='laplh', l_zero_fix='zero')))
-            return i2 @ self.stencil() if self.galerkin else i2
+            return i2 @ self.stencil if self.galerkin else i2
 
         else:
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                                     supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero')))
 
-    def diffusion(self):
+    def create_diffusion(self):
         """ Build the dissipation matrix for the magnetic field, insulating boundary condition """
         nr, maxnl, m = self.res
         if self.bc is not None and not self.ideal:
             return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc['tor'], with_sh_coeff='laplh', l_zero_fix='set'),
                                     geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], with_sh_coeff='laplh', l_zero_fix='set')))
         else:
-            return scsp.coo_matrix((nr*(maxnl-m), nr*(maxnl-m)))
+            return scsp.coo_matrix((2*nr*(maxnl-m), 2*nr*(maxnl-m)))
+
+    @property
+    def stencil(self):
+        return self._stencil
+
+    @property
+    def mass(self):
+        return self._mass
+
+    @property
+    def quasi_inverse(self):
+        return self._quasi_inverse
+
+    @property
+    def diffusion(self):
+        return self._diffusion
 
 
 class MomentumEquation(BaseEquation):
@@ -114,6 +144,7 @@ class MomentumEquation(BaseEquation):
             assert bc_type in ['no-slip', 'stress-free']
             self.bc_type = bc_type
         self.set_bc()
+        self._init_operators()
 
     def set_bc(self):
         if self.inviscid:
@@ -123,6 +154,12 @@ class MomentumEquation(BaseEquation):
                 self.bc = {"tor": {0: 10}, "pol": {0: 20}}
             if self.bc_type == 'stress-free':
                 self.bc = {"tor": {0: 12}, "pol": {0: 21}}
+
+    def _init_operators(self):
+        self._mass = self.create_mass()
+        self._quasi_inverse = self.create_quasi_inverse()
+        self._diffusion = self.create_diffusion()
+        self._coriolis = self.create_coriolis()
 
     def lorentz1(self, transform: WorlandTransform, modes: List[SphericalHarmonicMode]):
         """ Lorentz term (curl B_0) x b, in which B_0 is the background field.
@@ -156,13 +193,13 @@ class MomentumEquation(BaseEquation):
     def lorentz(self, transform: WorlandTransform, field_modes: List[SphericalHarmonicMode], quasi_inverse=True):
         op = self.lorentz1(transform, field_modes) + self.lorentz2(transform, field_modes)
         if quasi_inverse:
-            op = self.quasi_inverse() @ op
+            op = self.quasi_inverse @ op
         return op.tocsc()
 
     def advection(self, transform: WorlandTransform, flow_modes: List[SphericalHarmonicMode], quasi_inverse=True):
         return self.lorentz(transform, flow_modes, quasi_inverse).tocsc()
 
-    def mass(self):
+    def create_mass(self):
         nr, maxnl, m = self.res
         if self.inviscid:
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
@@ -171,7 +208,7 @@ class MomentumEquation(BaseEquation):
             return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                                     geo.i4lapl(nr, maxnl, m, no_bc(), -1.0, with_sh_coeff='laplh', l_zero_fix='zero')))
 
-    def quasi_inverse(self):
+    def create_quasi_inverse(self):
         nr, maxnl, m = self.res
         if self.inviscid:
             return scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
@@ -180,41 +217,45 @@ class MomentumEquation(BaseEquation):
             return scsp.block_diag((geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
                                     geo.i4(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
 
-    def diffusion(self, bc=True):
+    def create_diffusion(self,):
         nr, maxnl, m = self.res
         dim = nr * (maxnl - m)
         if self.inviscid:
-            return scsp.csc_matrix(2*dim, 2*dim)
+            return scsp.csc_matrix((2*dim, 2*dim))
         else:
-            if bc:
-                return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc["tor"],
-                                               with_sh_coeff='laplh', l_zero_fix='set'),
-                                    geo.i4lapl(nr, maxnl, m, bc=self.bc["pol"], coeff=-1.0,
-                                               with_sh_coeff='laplh', l_zero_fix='set')))
-            else:
-                return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=no_bc(),
-                                                   with_sh_coeff='laplh', l_zero_fix='zero'),
-                                        geo.i4lapl(nr, maxnl, m, bc=no_bc(), coeff=-1.0,
-                                                   with_sh_coeff='laplh', l_zero_fix='zero')))
+            return scsp.block_diag((geo.i2lapl(nr, maxnl, m, bc=self.bc["tor"],
+                                           with_sh_coeff='laplh', l_zero_fix='set'),
+                                geo.i4lapl(nr, maxnl, m, bc=self.bc["pol"], coeff=-1.0,
+                                           with_sh_coeff='laplh', l_zero_fix='set')))
 
-    def coriolis(self, bc: bool):
+    def create_coriolis(self,):
         nr, maxnl, m = self.res
         if self.inviscid:
-            if bc:
-                return scsp.bmat([[supp_geo.i2_nobc(nr, maxnl, m, bc=self.bc['tor'], coeff=-1.0j*m, l_zero_fix='set'),
-                                   supp_geo.i2coriolis_nobc(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero')],
-                                  [geo.i2coriolis(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero'),
-                                   geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], coeff=1.0j*m, l_zero_fix='set')]], format='csc')
-            else:
-                return scsp.bmat([[supp_geo.i2_nobc(nr, maxnl, m, bc=no_bc(), coeff=-1.0j*m, l_zero_fix='zero'),
-                                   supp_geo.i2coriolis_nobc(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero')],
-                                  [geo.i2coriolis(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero'),
-                                   geo.i2lapl(nr, maxnl, m, bc=no_bc(), coeff=1.0j*m, l_zero_fix='zero')]])
+            return scsp.bmat([[supp_geo.i2_nobc(nr, maxnl, m, bc=self.bc['tor'], coeff=-1.0j*m, l_zero_fix='set'),
+                               supp_geo.i2coriolis_nobc(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero')],
+                              [geo.i2coriolis(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero'),
+                               geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], coeff=1.0j*m, l_zero_fix='set')]], format='csc')
         else:
             return scsp.bmat([[geo.i2(nr, maxnl, m, bc=no_bc(), coeff=-1.0j*m, l_zero_fix='zero'),
                                geo.i2coriolis(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero')],
                               [geo.i4coriolis(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero'),
                                geo.i4lapl(nr, maxnl, m, bc=no_bc(), coeff=1.0j*m, l_zero_fix='zero')]])
+
+    @property
+    def mass(self):
+        return self._mass
+
+    @property
+    def quasi_inverse(self):
+        return self._quasi_inverse
+
+    @property
+    def diffusion(self):
+        return self._diffusion
+
+    @property
+    def coriolis(self):
+        return self._coriolis
 
 
 if __name__ == "__main__":
