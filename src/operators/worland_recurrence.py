@@ -100,36 +100,3 @@ def laplacianlW(nr, l, rg):
 jacobiP(2, -0.5, 0.5, np.linspace(0,1,4), np.linspace(-1,1,4))
 DjacobiP(2, -0.5, 0.5, np.linspace(0, 1, 4), np.linspace(-1, 1, 4))
 D2jacobiP(2, -0.5, 0.5, np.linspace(0, 1, 4), np.linspace(-1, 1, 4))
-
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-
-    with Timer('run time'):
-        for i in [100, 120, 150, 200, 300, 400, 500]:
-            n, l = i, i
-            r = np.linspace(0, 1, n+l//2)
-
-            w = worland(n+1, l, r)[:, n]
-            mw = np.loadtxt(f"../data/check_operator/W_n{n}_l{l}.dat")
-            print(f"worland error {np.abs(w-mw).max()}")
-
-            w = divrdiffrW(n+1, l, r)[:, n]
-            mw = np.loadtxt(f"../data/check_operator/DivrDiffrW_n{n}_l{l}.dat")
-            print(f"divrdiffrW error {np.abs((w - mw)/(np.abs(mw)+1e-16)).max()}")
-
-            w = diff2rW(n+1, l, r)[:, n]
-            mw = np.loadtxt(f"../data/check_operator/Diff2rW_n{n}_l{l}.dat")
-            print(f"diff2rW error {np.abs((w - mw) / (np.abs(mw) + 1e-16)).max()}")
-
-            w = laplacianlW(n+1, l, r)[:, n]
-            mw = np.loadtxt(f"../data/check_operator/LaplW_n{n}_l{l}.dat")
-            print(f"laplacianW error {np.abs((w - mw) / (np.abs(mw) + 1e-16)).max()}")
-
-        # nr, l = 101, 100
-        # rg = np.linspace(0, 1, 101)
-        # print(f"W error {np.abs(poly.worland(nr, l, rg) - worland(nr, l, rg)).max()}")
-        # print(f"W error {np.abs(poly.divrW(nr, l, rg) - divrW(nr, l, rg)).max()}")
-        # print(f"W error {np.abs(poly.divrdiffrW(nr, l, rg) - divrdiffrW(nr, l, rg)).max()}")
-        # print(f"W error {np.abs(poly.diff2rW(nr, l, rg) - diff2rW(nr, l, rg)).max()}")
-        # print(f"W error {np.abs(poly.laplacianlW(nr, l, rg) - laplacianlW(nr, l, rg)).max()}")
