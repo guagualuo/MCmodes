@@ -47,6 +47,13 @@ class MeridionalSlice(PhysicalFieldBase):
         weight = np.ones(ns) * worland_weight(ns) * sg * 2 * (1-sg**2)
         return sg, weight
 
+    def geostrophic_flow(self, ns, nz, kind='cubic'):
+        """ Compute the geostrophic component """
+        cy_field = self.to_cyl_coord()
+        sg = np.linspace(0, 1, ns)
+        return cylindrical_integration(cy_field['phi'], self.grid['r'], self.grid['theta'], sg, nz,
+                                          average=True, kind=kind)
+
     def columnarity(self, ns, nz, integration=True, sg=None, kind='cubic'):
         """ Compute columnarity of the field, defined by
             \sqrt( (\int \tilde{us}^2 + \tilde{uphi}^2) / (\int us^2+uphi^2) )"""
