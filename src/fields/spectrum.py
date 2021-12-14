@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import numpy as np
 import scipy.sparse as scsp
 
 from operators.worland_transform import WorlandTransform
 from operators.associated_legendre_transform import AssociatedLegendreTransformSingleM
 from fields.physical import *
-from operators.polynomials import energy_weight_tor, energy_weight_pol
+from operators.polynomials import *
 from utils import *
 
 
@@ -113,6 +113,83 @@ class SpectralComponentSingleM(SpectralComponentBase):
         field = {'r': r_comp, 'theta': theta_comp, 'phi': phi_comp}
         return MeridionalSlice(field, m, worland_transform.r_grid, legendre_transform.grid)
 
+    def cylindrical_integration(self, sg, n_jobs=-1, **kwargs) -> Dict[str, Callable]:
+        """ compute cylindrical average from spectrum """
+        nr, maxnl, m = self.ordering.nr, self.ordering.maxnl, self.ordering.m
+        zorder = nr + maxnl // 2
+        zorder += zorder % 2 + 8
+        x, w = np.polynomial.legendre.leggauss(zorder)
+
+        if self.component == 'tor':
+            def integrate(s):
+                zg = x * np.sqrt(1 - s**2)
+                rg = np.sqrt(s**2+zg**2)
+                tg = np.arccos(zg/rg)
+                legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, tg)
+
+                radial = self._Wtransform(self.spectrum, nr, maxnl, m, rg)
+                theta_comp = (1.0j * m * legendre_transform.operators['plmdivsin'] * radial).sum(axis=1)
+                phi_comp = (-legendre_transform.operators['dthetaplm'] * radial).sum(axis=1)
+
+                s_comp = np.cos(tg)*theta_comp
+                z_comp = -np.sin(tg)*theta_comp
+                return [0.5*(s_comp*w).sum(), 0.5*(phi_comp*w).sum(), 0.5*(z_comp*w).sum()]
+        if self.component == "pol":
+            def integrate(s):
+                zg = x * np.sqrt(1 - s**2)
+                rg = np.sqrt(s**2+zg**2)
+                tg = np.arccos(zg/rg)
+                legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, tg)
+
+                radial1 = self._divrWtransform(self.spectrum, nr, maxnl, m, rg)
+                radial2 = self._divrdiffrWtransform(self.spectrum, nr, maxnl, m, rg)
+                l_factor = scsp.diags([l * (l + 1) for l in range(m, maxnl)])
+                r_comp = (legendre_transform.operators['plm'] * np.array(radial1 @ l_factor)).sum(axis=1)
+                theta_comp = (legendre_transform.operators['dthetaplm'] * radial2).sum(axis=1)
+                phi_comp = (1.0j * m * legendre_transform.operators['plmdivsin'] * radial2).sum(axis=1)
+
+                s_comp = np.cos(tg) * theta_comp + np.sin(tg)*r_comp
+                z_comp = -np.sin(tg) * theta_comp + np.cos(tg)*r_comp
+                return [0.5*(s_comp*w).sum(), 0.5*(phi_comp*w).sum(), 0.5*(z_comp*w).sum()]
+
+        from joblib import Parallel, delayed
+        from scipy.interpolate import interpolate
+        tmp = np.array(Parallel(n_jobs=n_jobs,
+                                verbose=kwargs.get('verbose', 0),
+                                batch_size=kwargs.get('batch_size', 1))(delayed(integrate)(s) for s in sg))
+        kind = kwargs.get('interp_kind', 'cubic')
+        return {'s': interpolate.interp1d(sg, tmp[:, 0], kind=kind),
+                'phi': interpolate.interp1d(sg, tmp[:, 1], kind=kind),
+                'z': interpolate.interp1d(sg, tmp[:, 2], kind=kind)}
+
+
+    @staticmethod
+    def _Wtransform(spectrum, nr, maxnl, m, rg):
+        radial = np.full((maxnl-m, rg.shape[0]), fill_value=np.NaN, dtype=np.complex128)
+        for l in range(m, maxnl):
+            poly = worland(nr, l, rg)
+            a, b = (l-m)*nr, (l-m+1)*nr
+            radial[l-m, :] = poly @ spectrum[a:b]
+        return radial.T
+
+    @staticmethod
+    def _divrWtransform(spectrum, nr, maxnl, m, rg):
+        radial = np.full((maxnl - m, rg.shape[0]), fill_value=np.NaN, dtype=np.complex128)
+        for l in range(m, maxnl):
+            poly = divrW(nr, l, rg)
+            a, b = (l - m) * nr, (l - m + 1) * nr
+            radial[l - m, :] = poly @ spectrum[a:b]
+        return radial.T
+
+    @staticmethod
+    def _divrdiffrWtransform(spectrum, nr, maxnl, m, rg):
+        radial = np.full((maxnl - m, rg.shape[0]), fill_value=np.NaN, dtype=np.complex128)
+        for l in range(m, maxnl):
+            poly = divrdiffrW(nr, l, rg)
+            a, b = (l - m) * nr, (l - m + 1) * nr
+            radial[l - m, :] = poly @ spectrum[a:b]
+        return radial.T
+
     def normalise(self, factor):
         self.spectrum /= factor
         if self.energy_spectrum is not None:
@@ -163,3 +240,19 @@ class VectorFieldSingleM:
         self.components['tor'].restrict_parity(parity)
         self.components["pol"].restrict_parity(parity)
 
+
+if __name__ == "__main__":
+    sp = SpectralComponentSingleM.from_modes((101, 201), 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
+    sg = np.linspace(0.0, 1, 101)
+    with Timer("compute cylindrical integration"):
+        u_av = sp.cylindrical_integration(sg, n_jobs=8)
+
+    def reference(s):
+        from math import sqrt, pi
+        return (1 / (1155 * sqrt(21) * pi)) * (2409 * sqrt(2) + 1264 * sqrt(55) - \
+                                               4 * (17457 * sqrt(2) + 11749 * sqrt(55)) * s ** 2 + 24 * (9416 * sqrt(2) + 10735 * sqrt(55)) * s ** 4 - 256 * (660 * sqrt(2) + 1723 * sqrt(55)) * s ** 6 + 232960 * sqrt(55) * s ** 8)
+
+    plt.plot(sg, u_av['phi'](sg).real)
+    plt.plot(sg, u_av['phi'](sg).imag)
+    plt.plot(sg, reference(sg)-u_av['phi'](sg).real)
+    plt.show()
