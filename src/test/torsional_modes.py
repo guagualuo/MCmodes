@@ -20,7 +20,7 @@ resolutions = [(21, 21), (31, 31)]
 
 ideal = False
 
-if 0:
+if 1:
     field_modes = [SphericalHarmonicMode("pol", 1, 0, "1/5 Sqrt[pi/3] r(5-3r^2)")]
 
     if ideal:
@@ -31,22 +31,24 @@ if 0:
             model = IdealTorsionalOscillation(nr, maxnl)
             op_dp, op_qp = model.setup_operator(field_modes=field_modes, setup_eigen=True, lehnert=Le,
                                                 parity=True, u_parity='opposite')
-            name = f"feigs_Le{-int(np.log10(Le))}_{nr - 1}_{maxnl - 1}.npy"
+            name = f"feigs_Le{-np.log10(Le):.2f}_{nr - 1}_{maxnl - 1}.npy"
             compute_spectrum(op_dp[0], op_dp[1], config, name)
     else:
         config = 'poloidal_dp'
-        Le = 1e-3
-        Lu = 2/Le
-        for res in resolutions:
-            nr, maxnl = res
-            model = TorsionalOscillation(nr, maxnl, inviscid=True)
-            op_dp, op_qp = model.setup_operator(field_modes=field_modes, setup_eigen=True,
-                                                lehnert=Le, lundquist=Lu,
-                                                parity=True, u_parity='opposite')
-            name = f"feigs_Le{-int(np.log10(Le))}_{nr - 1}_{maxnl - 1}.npy"
-            compute_spectrum(op_dp[0], op_dp[1], config, name)
+        for le in [-2, -2.5, -3, -3.5, -4]:
+            Le = 10**le
+            print(Le)
+            Lu = 2/Le
+            for res in resolutions:
+                nr, maxnl = res
+                model = TorsionalOscillation(nr, maxnl, inviscid=True)
+                op_dp, op_qp = model.setup_operator(field_modes=field_modes, setup_eigen=True,
+                                                    lehnert=Le, lundquist=Lu,
+                                                    parity=True, u_parity='opposite')
+                name = f"feigs_Le{-int(np.log10(Le))}_{nr - 1}_{maxnl - 1}.npy"
+                compute_spectrum(op_dp[0], op_dp[1], config, name)
 
-if 1:
+if 0:
     field_modes = [SphericalHarmonicMode("pol", 1, 0, "5 Sqrt[21/13982] r(5-3r^2)"),
                    SphericalHarmonicMode("pol", 2, 0, "5/20 * Sqrt[21/13982] r^2(7-5r^2)")]
     if ideal:
