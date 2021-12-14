@@ -47,8 +47,8 @@ if 0:
             compute_spectrum(op_dp[0], op_dp[1], config, name)
 
 if 1:
-    field_modes = [SphericalHarmonicMode("pol", 1, 0, "Sqrt[42/1195] r(5-3r^2)"),
-                   SphericalHarmonicMode("pol", 2, 0, "1/8 * Sqrt[42/1195] r^2(7-5r^2)")]
+    field_modes = [SphericalHarmonicMode("pol", 1, 0, "5 Sqrt[21/13982] r(5-3r^2)"),
+                   SphericalHarmonicMode("pol", 2, 0, "5/20 * Sqrt[21/13982] r^2(7-5r^2)")]
     if ideal:
         config = 'poloidal_mixed_ideal'
         Le = 1e-3
@@ -60,12 +60,14 @@ if 1:
             compute_spectrum(A, B, config, name)
     else:
         config = 'poloidal_mixed'
-        Le = 1e-3
-        Lu = 2/Le
-        for res in resolutions:
-            nr, maxnl = res
-            model = TorsionalOscillation(nr, maxnl, inviscid=True)
-            A, B = model.setup_operator(field_modes=field_modes, setup_eigen=True, lehnert=Le, lundquist=Lu)
-            name = f"feigs_Le{-int(np.log10(Le))}_{nr - 1}_{maxnl - 1}.npy"
-            compute_spectrum(A, B, config, name)
+        for le in [-2, -2.5, -3, -3.5, -4]:
+            Le = 10**le
+            print(Le)
+            Lu = 2/Le
+            for res in resolutions:
+                nr, maxnl = res
+                model = TorsionalOscillation(nr, maxnl, inviscid=True)
+                A, B = model.setup_operator(field_modes=field_modes, setup_eigen=True, lehnert=Le, lundquist=Lu)
+                name = f"feigs_Le{-np.log10(Le):.2f}_{nr - 1}_{maxnl - 1}.npy"
+                compute_spectrum(A, B, config, name)
 
