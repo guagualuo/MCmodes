@@ -14,8 +14,11 @@ src/notebooks/
 src/test/benchmark.py
 src/test/visualisation.py
 src/test/__pycache__/
+src/test/check_polynomials.py
 src/operators/quicc_supplements/__pycache__/
 notebooks/
+TOs_paper/
+MC_paper/
 
 # Data folder
 data/

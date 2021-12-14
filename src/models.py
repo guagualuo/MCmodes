@@ -229,7 +229,7 @@ class TorsionalOscillation(MagnetoCoriolis):
 
 
 class IdealTorsionalOscillation(IdealMagnetoCoriolis):
-    """ torsional oscillation with no diffusion """
+    """ torsional oscillation with no diffusion, galerkin basis """
     def __init__(self, nr, maxnl, n_grid=None, **kwargs):
         super(IdealTorsionalOscillation, self).__init__(nr, maxnl, 0, n_grid, **kwargs)
 

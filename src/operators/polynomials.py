@@ -7,10 +7,12 @@ from scipy import special
 from abc import ABC, abstractmethod
 
 import quicc.geometry.worland.worland_basis as wb
+from operators.worland_recurrence import *
 
 
 def worland_grid(nr):
     return np.cos(np.pi/2*(np.arange(nr-1,-1,-1)+0.5)/nr)
+
 
 def worland_weight(nr):
     return np.pi/(2*nr)
@@ -86,32 +88,32 @@ def _laplacianlW(n, l, r):
                                    (8.0*l+12.0) * r**l * _DjacobiP(n,a,b,2.0*r**2-1.0))
 
 
-def worland(nr, l, r_grid):
-    """W(r)"""
-    return np.concatenate([_worland(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
-
-
-def divrW(nr, l, r_grid):
-    """W(r)/r"""
-    if l == 0:
-        return np.zeros((r_grid.shape[0], nr))
-    else:
-        return np.concatenate([_divrworland(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
-
-
-def divrdiffrW(nr, l, r_grid):
-    """1/r D r W(r) """
-    return np.concatenate([_divrdiffrW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
-
-
-def diff2rW(nr, l, r_grid):
-    """ D^2 r W_n^l(r) """
-    return np.concatenate([_diff2rW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
-
-
-def laplacianlW(nr, l, r_grid):
-    """ 1/r^2 D(r^2 D ) - l(l+1)/r^2 W_n^l(r) """
-    return np.concatenate([_laplacianlW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+# def worland(nr, l, r_grid):
+#     """W(r)"""
+#     return np.concatenate([_worland(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+#
+#
+# def divrW(nr, l, r_grid):
+#     """W(r)/r"""
+#     if l == 0:
+#         return np.zeros((r_grid.shape[0], nr))
+#     else:
+#         return np.concatenate([_divrworland(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+#
+#
+# def divrdiffrW(nr, l, r_grid):
+#     """1/r D r W(r) """
+#     return np.concatenate([_divrdiffrW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+#
+#
+# def diff2rW(nr, l, r_grid):
+#     """ D^2 r W_n^l(r) """
+#     return np.concatenate([_diff2rW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
+#
+#
+# def laplacianlW(nr, l, r_grid):
+#     """ 1/r^2 D(r^2 D ) - l(l+1)/r^2 W_n^l(r) """
+#     return np.concatenate([_laplacianlW(ni, l, r_grid).reshape(-1, 1) for ni in range(nr)], axis=1)
 
 
 def energy_weight_tor(l, n):
@@ -120,17 +122,11 @@ def energy_weight_tor(l, n):
     nr = rdegree + 2 + (rdegree + 2) % 2
 
     grids, weights = energy_quadrature(nr)
-    wmat = np.diag(weights)
-    r2mat = np.diag(grids*grids)
+    wmat = scsp.diags(weights)
+    r2mat = scsp.diags(grids**2)
 
-    poly = np.zeros((n + 1, grids.shape[0]))
-    # worland value
-    for i in range(n + 1):
-        norm = wb.worland_norm(i, l)
-        tmp1 = special.eval_jacobi(i, -0.5, l - 0.5, 2.0*grids**2 - 1.0)
-        poly[i, :] = grids**l * tmp1 * norm
-    tormat = l*(l+1)*np.linalg.multi_dot([poly, r2mat, wmat, poly.transpose()])
-    return tormat
+    poly = worland(n+1, l, grids).T
+    return l*(l+1)*(poly @ r2mat @ wmat @ poly.T)
 
 
 def energy_weight_pol(l, n):
@@ -139,24 +135,12 @@ def energy_weight_pol(l, n):
     nr = rdegree + 2 + (rdegree + 2) % 2
 
     grids, weights = energy_quadrature(nr)
-    wmat = np.diag(weights)
-
-    poly = np.zeros((n + 1, grids.shape[0]))
-    diff = np.zeros((n + 1, grids.shape[0]))
+    wmat = scsp.diags(weights)
 
     # worland value and diff(r * worland)
-    for i in range(n + 1):
-        norm = wb.worland_norm(i, l)
-        tmp1 = special.eval_jacobi(i, -0.5, l - 0.5, 2.0 * grids ** 2 - 1.0)
-        poly[i, :] = grids ** l * tmp1 * norm
-        if i > 0:
-            tmp2 = special.eval_jacobi(i - 1, 0.5, l + 0.5, 2.0 * grids ** 2 - 1.0)
-        else:
-            tmp2 = 0
-        diff[i, :] = (2.0 * (1.0 - 0.5 + l - 0.5 + i) * grids ** (l + 2) * tmp2 + (l + 1) * grids ** l * tmp1) * norm
-    polmat = l ** 2 * (l + 1) ** 2 * np.linalg.multi_dot([poly, wmat, poly.transpose()]) + l * (
-                l + 1) * np.linalg.multi_dot([diff, wmat, diff.transpose()])
-    return polmat
+    poly = worland(n+1, l, grids).T
+    diffr = (scsp.diags(grids) @ divrdiffrW(n+1, l, grids)).T
+    return l**2 * (l+1)**2 * (poly @ wmat @ poly.T) + l*(l+1)*(diffr @ wmat @ diffr.T)
 
 
 class SymOperatorBase(ABC):
