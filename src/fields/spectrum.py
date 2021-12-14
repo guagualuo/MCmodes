@@ -118,6 +118,16 @@ class SpectralComponentSingleM(SpectralComponentBase):
         if self.energy_spectrum is not None:
             self.energy_spectrum /= np.abs(factor)**2
 
+    def restrict_parity(self, parity):
+        """ set the spectrum of certain parity to be zero """
+        nr, maxnl, m = self.ordering.nr, self.ordering.maxnl, self.ordering.m
+        a_idx, s_idx = parity_idx(nr, maxnl, m)
+        if self.component == 'pol':
+            idx = {'dp': a_idx, 'qp': s_idx}
+        else:
+            idx = {'dp': s_idx, 'qp': a_idx}
+        self.spectrum[idx[parity]] = 0
+
 
 class VectorFieldSingleM:
     """ Class for a vector field at single m """
@@ -147,3 +157,9 @@ class VectorFieldSingleM:
                 component.energy_spectrum /= np.abs(factor)**2
         if self.energy_spectrum is not None:
             self.energy_spectrum /= np.abs(factor)**2
+
+    def restrict_parity(self, parity):
+        """ set the spectrum of certain parity to be zero """
+        self.components['tor'].restrict_parity(parity)
+        self.components["pol"].restrict_parity(parity)
+
