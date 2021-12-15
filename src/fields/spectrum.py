@@ -217,9 +217,10 @@ class VectorFieldSingleM:
     @classmethod
     def from_parity_spectrum(cls, res, m, data: np.ndarray, parity):
         """ given a spectrum with a certain parity, padding with zeros """
-        dim = data.shape[0] // 2
-        cls.components = {"tor": SpectralComponentSingleM.from_parity_spectrum(res, m, "tor", data[:dim], parity),
-                          "pol": SpectralComponentSingleM.from_parity_spectrum(res, m, "pol", data[:dim], parity)}
+        a_idx, s_idx = parity_idx(res[0], res[1], m)
+        tordim = len(a_idx) if parity in ['QP', 'qp'] else len(s_idx)
+        cls.components = {"tor": SpectralComponentSingleM.from_parity_spectrum(res, m, "tor", data[:tordim], parity),
+                          "pol": SpectralComponentSingleM.from_parity_spectrum(res, m, "pol", data[tordim:], parity)}
         cls.energy_spectrum = 0
 
     def energy(self):
