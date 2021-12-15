@@ -16,7 +16,7 @@ class Timer(object):
         print(f"{self.name} elapsed {time.time() - self.start:.2f} s.")
 
 
-def single_eig(A, B, target, nev=5, tol=1e-14):
+def single_eig(A, B, target, nev=5, tol=1e-14, v0=None):
     """ Compute the eigenvector, for given eigenvalue """
 
     A = scsp.csc_matrix(A)
@@ -28,7 +28,7 @@ def single_eig(A, B, target, nev=5, tol=1e-14):
         return clu.solve(B.dot(x))
 
     D = spla.LinearOperator(dtype=np.complex128, shape=np.shape(A), matvec=bmx)
-    evals, u = spla.eigs(D, k=nev, which='LM', tol=tol)
+    evals, u = spla.eigs(D, k=nev, which='LM', tol=tol, v0=v0)
     return 1.0 / evals + target, u
 
 
