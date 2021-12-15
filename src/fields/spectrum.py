@@ -205,6 +205,21 @@ class SpectralComponentSingleM(SpectralComponentBase):
             idx = {'dp': s_idx, 'qp': a_idx}
         self.spectrum[idx[parity]] = 0
 
+    def padding(self, nr, maxnl):
+        """ padding to higher resolution """
+        c0 = self.spectrum
+        nr0, maxnl0, m = self.ordering.nr, self.ordering.maxnl, self.ordering.m
+        idx = []
+        k = 0
+        for l in range(m, maxnl):
+            for n in range(nr):
+                if n < nr0:
+                    idx.append(k)
+                k += 1
+        c = np.zeros(nr*(maxnl-m), dtype=c0.dtype)
+        c[idx] = c0
+        return SpectralComponentSingleM((nr, maxnl), m, self.component, c)
+
 
 class VectorFieldSingleM:
     """ Class for a vector field at single m """
@@ -251,6 +266,13 @@ class VectorFieldSingleM:
         """ set the spectrum of certain parity to be zero """
         self.components['tor'].restrict_parity(parity)
         self.components["pol"].restrict_parity(parity)
+
+    def padding(self, nr, maxnl):
+        for comp in self.components.keys():
+            self.components[comp] = self.components[comp].padding(nr, maxnl)
+
+    def spectrum(self):
+        return np.concatenate([self.components['tor'].spectrum, self.components['pol'].spectrum])
 
 
 if __name__ == "__main__":
