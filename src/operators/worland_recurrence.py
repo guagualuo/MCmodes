@@ -3,7 +3,6 @@ from numba import njit
 
 import quicc.geometry.worland.worland_basis as wb
 from utils import Timer
-import operators.polynomials as poly
 
 
 @njit
