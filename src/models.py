@@ -25,6 +25,21 @@ class BaseModel(ABC):
         pass
 
 
+class FreeDecay:
+    def __init__(self, component, nr, l):
+        bcs = {'tor': {0: 10}, 'pol': {0: 13}}
+        self.bc = bcs[component]
+        self.l = l
+        self.nr = nr
+        self.component = component
+
+    def setup_eigen_problem(self):
+        import quicc.geometry.spherical.sphere_radius_worland as rad
+        A = rad.i2lapl(self.nr, self.l, self.bc, coeff=self.l*(self.l+1))
+        B = rad.i2(self.nr, self.l, {0: 0}, coeff=self.l*(self.l+1))
+        return A, B
+
+
 class KinematicDynamo(BaseModel):
     def __init__(self, nr, maxnl, m, n_grid=None, **kwargs):
         super(KinematicDynamo, self).__init__(nr, maxnl, m, n_grid)
