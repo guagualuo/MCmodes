@@ -120,6 +120,43 @@ class MeridionalSlice(PhysicalFieldBase):
                 ax.set_title(titles[k], fontsize=s)
             plt.colorbar(im, cax=cax)
 
+    def visualise_strength(self, name: str = '', title=True, **kwargs):
+        rr, tt = np.meshgrid(self.grid['r'], self.grid['theta'])
+        X2 = rr * np.cos(tt)
+        X1 = rr * np.sin(tt)
+        # compute field strength
+        field = 0
+        for comp in self.data.keys():
+            field += np.abs(self.data[comp])**2
+        field = np.sqrt(field)
+
+        title_ = fr'${name}$'
+        if 'ax' in kwargs:
+            ax = kwargs['ax']
+        else:
+            fig, ax = plt.subplots(figsize=(8, 8))
+        s = kwargs.get('s', 16)
+        delta = kwargs.get('exclude_BL', None)
+        j = None if delta is None else np.argmax(self.grid['r'] > 1 - delta) - 1
+
+        r = field.max() if j is None else field[:, :j].max()
+        vmin = 0
+        vmax = kwargs.get('vmax', r)
+        im = ax.pcolormesh(X1, X2, field, shading='gouraud', cmap=plt.get_cmap('coolwarm'),
+                           vmin=vmin, vmax=vmax)
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        cax.tick_params(labelsize=s)
+        ax.set_xlim(kwargs.get('xlim', [0, 1]))
+        ax.set_ylim(kwargs.get('ylim', [0, 1]))
+        ax.set_aspect('equal', 'box')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.tick_params(labelsize=s)
+        if title:
+            ax.set_title(title_, fontsize=s)
+        plt.colorbar(im, cax=cax)
+
 
 def cylindrical_integration(data, rg, tg, sg, n, average=False, kind='cubic') -> Callable:
     """ cylindrical integration of data on spherical grids, using interpolation, not exact """
