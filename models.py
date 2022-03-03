@@ -34,7 +34,7 @@ class FreeDecay:
         self.component = component
 
     def setup_eigen_problem(self):
-        import quicc.geometry.spherical.sphere_radius_worland as rad
+        import QuICC.Python.quicc.geometry.spherical.sphere_radius_worland as rad
         A = rad.i2lapl(self.nr, self.l, self.bc, coeff=self.l*(self.l+1))
         B = rad.i2(self.nr, self.l, {0: 0}, coeff=self.l*(self.l+1))
         return A, B
