@@ -31,7 +31,7 @@ class WorlandTransform:
     nr: int
     maxnl: int
     m: int
-    n_grid: int
+    n_grid: int = None
     r_grid: np.ndarray = field(repr=False, default=None)
     require_curl: bool = True
 
@@ -41,9 +41,9 @@ class WorlandTransform:
             if self.n_grid < self.nr + self.maxnl // 2 + 10:
                 raise RuntimeWarning("Check if the physical grids is enough")
             self.r_grid = worland_grid(self.n_grid)
-            self.weight = np.ones(self.n_grid) * worland_weight(self.n_grid)
         else:
             self.n_grid = self.r_grid.shape[0]
+        self.weight = np.ones(self.n_grid) * worland_weight(self.n_grid)
 
         # init operators
         self._init_operators()
