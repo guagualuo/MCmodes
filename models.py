@@ -1,7 +1,5 @@
-from abc import ABC, abstractmethod
-
-import numpy as np
-import scipy.sparse.linalg as spla
+import dataclasses
+from dataclasses import dataclass
 from typing import Union, Dict
 
 from operators.equations import *
@@ -9,43 +7,119 @@ from operators.worland_transform import WorlandTransform
 from utils import *
 
 
-class BaseModel(ABC):
-    def __init__(self, nr, maxnl, m, n_grid, *args, **kwargs):
-        self.res = (nr, maxnl, m)
-        if n_grid is None:
-            n_grid = nr + maxnl//2 + 11
-        self.n_grid = n_grid
+@dataclass
+class _BaseModel(ABC):
+    """
+    Base model for single m models
+
+    Parameters
+    -----
+    nr: number of radial modes, starting from 0
+
+    maxnl: maximal spherical harmonic degree L + 1 = maxnl
+
+    m: azimuthal wave number
+
+    n_grid: the number of radial grids.
+
+    """
+    nr: int
+    maxnl: int
+    m: int
+    n_grid: int = field(default=None)
+
+    def __post_init__(self):
+        self._check_params()
+        self.res = self.nr, self.maxnl, self.m
+        if self.n_grid is None:
+            self.n_grid = self.nr + self.maxnl // 2 + 11
 
     @abstractmethod
     def setup_operator(self, *args, **kwargs):
+        """
+        Setup operators of the problem
+        """
         pass
 
     @abstractmethod
     def setup_eigen_problem(self, operators, **kwargs):
+        """
+        Setup the matrices for eigenvalue problem
+        """
         pass
 
+    def _check_params(self):
+        if self.nr <= 0:
+            raise RuntimeWarning("nr must be positive")
+        if self.maxnl <= 1:
+            raise RuntimeWarning(f"maxnl={self.maxnl} contains no valid l")
+        if self.m < 0:
+            raise RuntimeWarning(f"m must be non-negative")
+        if isinstance(self.n_grid, int) and self.n_grid <= 0:
+            raise RuntimeWarning(f"n_grid must be positive")
 
+
+@dataclass
 class FreeDecay:
-    def __init__(self, component, nr, l):
+    """
+    Class for free decay magnetic eigenmodes
+
+    Parameters
+    -----
+    component: either 'tor' or 'pol'
+
+    nr: number of radial modes, starting from 0
+
+    l: spherical harmonic degree
+
+    """
+    component: str
+    nr: int
+    l: int
+
+    def __post_init__(self):
+        self._check_params()
         bcs = {'tor': {0: 10}, 'pol': {0: 13}}
-        self.bc = bcs[component]
-        self.l = l
-        self.nr = nr
-        self.component = component
+        self.bc = bcs[self.component]
 
     def setup_eigen_problem(self):
-        import QuICC.Python.quicc.geometry.spherical.sphere_radius_worland as rad
+        import quicc.geometry.spherical.sphere_radius_worland as rad
         A = rad.i2lapl(self.nr, self.l, self.bc, coeff=self.l*(self.l+1))
         B = rad.i2(self.nr, self.l, {0: 0}, coeff=self.l*(self.l+1))
         return A, B
 
+    def _check_params(self):
+        if self.component.lower() not in ['tor', 'pol']:
+            raise RuntimeWarning(f"component {self.component} is neither 'tor' or 'pol'")
+        if self.nr <= 0:
+            raise RuntimeWarning("nr must be positive")
+        if self.l <= 0:
+            raise RuntimeWarning("l must be positive")
 
-class KinematicDynamo(BaseModel):
-    def __init__(self, nr, maxnl, m, n_grid=None, **kwargs):
-        super(KinematicDynamo, self).__init__(nr, maxnl, m, n_grid)
-        self.transform = WorlandTransform(nr, maxnl, m, self.n_grid, require_curl=False)
-        self.eq_setup = kwargs
-        self.induction_eq = InductionEquation(nr, maxnl, m, **self.eq_setup)
+
+@dataclass
+class KinematicDynamo(_BaseModel):
+    """
+    Class for the kinematic dynamo problem.
+
+    Parameters
+    -----
+    nr: number of radial modes, starting from 0
+
+    maxnl: maximal spherical harmonic degree L + 1 = maxnl
+
+    m: azimuthal wave number
+
+    n_grid: the number of radial grids.
+
+    induction_eq_params: setup for the induction equation.
+    """
+    induction_eq_params: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        super(KinematicDynamo, self).__post_init__()
+        self.transform = WorlandTransform(self.nr, self.maxnl, self.m, self.n_grid, require_curl=False)
+        self.induction_eq = InductionEquation(self.nr, self.maxnl, self.m, **self.induction_eq_params)
 
     def setup_operator(self, flow_modes: List[SphericalHarmonicMode], setup_eigen=False, **kwargs):
         induction_mat = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
@@ -62,10 +136,33 @@ class KinematicDynamo(BaseModel):
         return Rm * operators['induction'] + operators['diffusion'], operators['mass']
 
 
-class InertialModes(BaseModel):
-    def __init__(self, nr, maxnl, m, inviscid: bool, bc_type: str = None):
-        super(InertialModes, self).__init__(nr, maxnl, m, None)
-        self.momentum_eq = MomentumEquation(*self.res, inviscid, bc_type)
+@dataclass
+class InertialModes(_BaseModel):
+    """
+    Class for ideal inertial modes.
+
+    Parameters
+    -----
+    nr: number of radial modes, starting from 0
+
+    maxnl: maximal spherical harmonic degree L + 1 = maxnl
+
+    m: azimuthal wave number
+
+    n_grid: the number of radial grids.
+
+    inviscid: If True, the viscous diffusion term is set to zero
+
+    bc_type: boundary condition for viscous u. Ignored when `inviscid` is True.
+
+    """
+    inviscid: bool = True
+    bc_type: str = None
+
+    def __post_init__(self):
+        super(InertialModes, self).__post_init__()
+        self._check_params()
+        self.momentum_eq = MomentumEquation(self.nr, self.maxnl, self.m, self.inviscid, self.bc_type)
 
     def setup_operator(self, setup_eigen=False, **kwargs):
         nr, maxnl, m = self.res
@@ -89,22 +186,53 @@ class InertialModes(BaseModel):
         else:
             return -2*operators['coriolis'], operators['mass']
 
+    def _check_params(self):
+        if not self.inviscid and self.bc_type is None:
+            raise RuntimeWarning("no boundary condition of u is specified when viscous dissipation is present")
 
-class MagnetoCoriolis(BaseModel):
-    def __init__(self, nr, maxnl, m, n_grid=None, inviscid=True, bc=None, **kwargs):
-        super(MagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid)
+
+@dataclass
+class MagnetoCoriolis(_BaseModel):
+    """
+    Class for Magneto-Coriolis modes
+
+    Parameters
+    -----
+    nr: number of radial modes, starting from 0
+
+    maxnl: maximal spherical harmonic degree L + 1 = maxnl
+
+    m: azimuthal wave number
+
+    n_grid: the number of radial grids.
+
+    inviscid: If True, the viscous diffusion term is set to zero
+
+    bc_type: boundary condition for viscous u. Ignored when `inviscid` is True.
+
+    induction_eq_params: setup for the induction equation.
+
+    """
+    inviscid: bool = True
+    bc_type: str = None
+    induction_eq_params: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        super(MagnetoCoriolis, self).__post_init__()
+        self._check_params()
+
+        nr, maxnl, m = self.res
         self.transform = WorlandTransform(nr, maxnl, m, self.n_grid, require_curl=True)
-        self.inviscid = inviscid
-        self.induction_eq_setup = kwargs
-        if not inviscid:
-            assert bc is not None
-            self.bc = bc
-        self.induction_eq = InductionEquation(*self.res, **self.induction_eq_setup)
-        self.momentum_eq = MomentumEquation(*self.res, inviscid=inviscid, bc_type=bc)
+        self.induction_eq = InductionEquation(*self.res, **self.induction_eq_params)
+        self.momentum_eq = MomentumEquation(*self.res, inviscid=self.inviscid, bc_type=self.bc_type)
         if self.induction_eq.galerkin:
-            self.dim = {'u': 2*nr*(maxnl-m), 'b': 2*(nr-1)*(maxnl-m)}
+            self.dim = {'u': 2 * nr * (maxnl - m), 'b': 2 * (nr - 1) * (maxnl - m)}
         else:
-            self.dim = {'u': 2*nr*(maxnl-m), 'b': 2*nr*(maxnl - m)}
+            self.dim = {'u': 2 * nr * (maxnl - m), 'b': 2 * nr * (maxnl - m)}
+
+    def _check_params(self):
+        if not self.inviscid and self.bc_type is None:
+            raise RuntimeWarning("no boundary condition of u is specified when viscous dissipation is present")
 
     def setup_operator(self, field_modes: List[SphericalHarmonicMode],
                        flow_modes: Union[None, List[SphericalHarmonicMode]] = None, setup_eigen=False,
@@ -193,13 +321,18 @@ class MagnetoCoriolis(BaseModel):
 
 
 class IdealMagnetoCoriolis(MagnetoCoriolis):
-    """ Ideal Magneto-Coriolis modes, using the Alfven time scale formulation with Le number """
+    """
+    Ideal Magneto-Coriolis modes, using the Alfven time scale formulation with Le number
+    """
+
     def __init__(self, nr, maxnl, m, n_grid=None, **kwargs):
-        # default using a galerkin basis, but can be used with no boundary condition
-        super(IdealMagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid, inviscid=True,
-                                                   galerkin=kwargs.get('galerkin', True),
-                                                   ideal=True,
-                                                   boundary_condition=kwargs.get('boundary_condition', True))
+        # default using a galerkin basis, but can be used with no boundary condition (only for the aim of Malkus case)
+        induction_eq_params = {'galerkin': kwargs.get('galerkin', True),
+                               'ideal': True,
+                               'boundary_condition': kwargs.get('boundary_condition', True)}
+        super(IdealMagnetoCoriolis, self).__init__(nr, maxnl, m, n_grid,
+                                                   inviscid=True,
+                                                   induction_eq_params=induction_eq_params)
 
     def setup_eigen_problem(self, operators, **kwargs):
         Le = kwargs.get('lehnert')
@@ -218,11 +351,15 @@ class IdealMagnetoCoriolis(MagnetoCoriolis):
 
 
 class TorsionalOscillation(MagnetoCoriolis):
-    """ torsional oscillation with magnetic diffusion and possibly with viscous diffusion
-        Non-dimensional parameters are Le, Lu and Pm """
+    """
+    Torsional oscillation with magnetic diffusion and possibly with viscous diffusion
+    Non-dimensional parameters are Le, Lu and Pm
+    """
     def __init__(self, nr, maxnl, inviscid=True, n_grid=None, **kwargs):
-        super(TorsionalOscillation, self).__init__(nr, maxnl, 0, n_grid, inviscid=inviscid,
-                                                   galerkin=kwargs.get('galerkin', True))
+        induction_eq_params = {'galerkin': kwargs.get('galerkin', False)}
+        super(TorsionalOscillation, self).__init__(nr, maxnl, 0, n_grid,
+                                                   inviscid=inviscid,
+                                                   induction_eq_params=induction_eq_params)
 
     def setup_eigen_problem(self, operators, **kwargs):
         Le = kwargs.get('lehnert')
@@ -244,7 +381,9 @@ class TorsionalOscillation(MagnetoCoriolis):
 
 
 class IdealTorsionalOscillation(IdealMagnetoCoriolis):
-    """ torsional oscillation with no diffusion, galerkin basis """
+    """
+    Torsional oscillation with no diffusion, galerkin basis. Likely to be an ill-posed system.
+    """
     def __init__(self, nr, maxnl, n_grid=None, **kwargs):
         super(IdealTorsionalOscillation, self).__init__(nr, maxnl, 0, n_grid, **kwargs)
 

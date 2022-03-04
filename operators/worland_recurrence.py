@@ -2,7 +2,6 @@ import numpy as np
 from numba import njit
 
 import quicc.geometry.worland.worland_basis as wb
-from utils import Timer
 
 
 @njit

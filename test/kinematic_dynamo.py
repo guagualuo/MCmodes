@@ -13,7 +13,7 @@ LJs20 = SphericalHarmonicMode("pol", 2, 0, "1.193271237996972 * r^2 (1 - r^2)^2"
 """ D.J. t1s1 """
 nr, maxnl, m = 41, 41, 1
 # model = KinematicDynamo(nr, maxnl, m)
-model = KinematicDynamo(nr, maxnl, m, galerkin=True, ideal=False, boundary_condition=True)
+model = KinematicDynamo(nr, maxnl, m, induction_eq_params={'galerkin': True, 'ideal': False, 'boundary_condition': True})
 with Timer("build op"):
     A, B = model.setup_operator(flow_modes=[t10, s10], setup_eigen=True, Rm=160)
 

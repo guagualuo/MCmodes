@@ -17,7 +17,8 @@ def slow(wi, elsasser, magnetic_ekman, m):
 
 nr, maxnl, m = 21, 21, 1
 field_modes = [SphericalHarmonicMode("tor", 1, 0, "2 Sqrt[pi/3] r")]
-model = MagnetoCoriolis(nr, maxnl, m, inviscid=True, galerkin=False, ideal=True, boundary_condition=False)
+model = MagnetoCoriolis(nr, maxnl, m, inviscid=True,
+                        induction_eq_params={'galerkin': False, 'ideal': True, 'boundary_condition': False})
 operators = model.setup_operator(field_modes=field_modes, setup_eigen=False)
 
 Eeta = 1e-4
@@ -55,4 +56,4 @@ ax1.scatter(gammas, slow_eig.imag, marker='o', color='k')
 ax2.scatter(gammas, fast_eig.real, marker='s', color='k')
 ax2.scatter(gammas, slow_eig.real, marker='s', color='k')
 plt.show()
-# fig.savefig('../data/IdealMalkus/benchmark.png', dpi=200, bbox_inches='tight', pad_inches=0.1)
+# fig.savefig('../../data/IdealMalkus/benchmark.png', dpi=200, bbox_inches='tight', pad_inches=0.1)

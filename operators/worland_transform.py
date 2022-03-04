@@ -1,30 +1,53 @@
+from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
-import numpy as np
-import scipy.sparse as scsp
-from typing import Union, List, Dict, Tuple
-from numba import njit
+from typing import List, Dict, Tuple
 
 from operators.polynomials import *
 from operators.threeJ_integrals import gaunt_matrix, elsasser_matrix
 from utils import Timer
 
 
+@dataclass
 class WorlandTransform:
-    def __init__(self, nr, maxnl, m, n_grid, r_grid=None, require_curl=False):
-        self.res = nr, maxnl, m
-        if r_grid is None:
-            self.n_grid = n_grid
-            if n_grid < nr + maxnl//2 + 10:
+    """
+    Class for Worland transform in a full sphere at a single m.
+
+    Parameters
+    -----
+    nr: number of radial modes, starting from 0
+
+    maxnl: maximal spherical harmonic degree L + 1 = maxnl
+
+    m: azimuthal wave number
+
+    n_grid: the number of radial grids.
+
+    r_grid: the radial grids. Default is None. If given,  n_grid is ignored. For visualisation on usr defined grids.
+        For projection to spectral space, one should not set this parameter.
+
+    require_curl: whether compute operators Laplacian_l W_n^l(r)
+
+    """
+    nr: int
+    maxnl: int
+    m: int
+    n_grid: int
+    r_grid: np.ndarray = field(repr=False, default=None)
+    require_curl: bool = True
+
+    def __post_init__(self):
+        self.res = self.nr, self.maxnl, self.m
+        if self.r_grid is None:
+            if self.n_grid < self.nr + self.maxnl // 2 + 10:
                 raise RuntimeWarning("Check if the physical grids is enough")
-            self.r_grid = worland_grid(n_grid)
-            self.weight = np.ones(n_grid) * worland_weight(n_grid)
+            self.r_grid = worland_grid(self.n_grid)
+            self.weight = np.ones(self.n_grid) * worland_weight(self.n_grid)
         else:
-            self.r_grid = r_grid
-            self.n_grid = r_grid.shape[0]
+            self.n_grid = self.r_grid.shape[0]
 
         # init operators
         self._init_operators()
-        if require_curl:
+        if self.require_curl:
             self._init_curl_op()
 
     def _init_operators(self, ):
