@@ -5,7 +5,7 @@ import numpy as np
 
 from operators.worland_transform import WorlandTransform
 from operators.associated_legendre_transform import AssociatedLegendreTransformSingleM
-from fields.physical import MeridionalSlice
+from fields.physical import MeridionalSlice, EquatorialSlice
 from operators.polynomials import *
 from utils import *
 
@@ -134,14 +134,10 @@ class SpectralComponentSingleM(ABC):
 
         self._energy_spectrum = energy_spectrum
 
-    def physical_field(self,
-                       worland_transform: WorlandTransform,
-                       legendre_transform: AssociatedLegendreTransformSingleM
-                       ) -> MeridionalSlice:
-        """
-        Compute physical fields given the Worland transform and associated Legendre transform.
-        Physical grids are set in the transform objects.
-        """
+    def _physical_field(self,
+                        worland_transform: WorlandTransform,
+                        legendre_transform: AssociatedLegendreTransformSingleM
+                        ) -> Dict[str, np.ndarray]:
         m = self.m
         maxnl = self.maxnl
         nrg = worland_transform.r_grid.shape[0]
@@ -160,8 +156,28 @@ class SpectralComponentSingleM(ABC):
             phi_comp = 1.0j * m * legendre_transform._operators['plmdivsin'] @ radial2
         else:
             raise RuntimeError(f"Unknown component {self.component}, must be either 'pol' or 'tor'.")
-        field = {'r': r_comp, 'theta': theta_comp, 'phi': phi_comp}
-        return MeridionalSlice(field, m, worland_transform.r_grid, legendre_transform.grid)
+        return {'r': r_comp, 'theta': theta_comp, 'phi': phi_comp}
+
+    def physical_field(self,
+                       worland_transform: WorlandTransform,
+                       legendre_transform: AssociatedLegendreTransformSingleM
+                       ) -> MeridionalSlice:
+        """
+        Compute physical fields given the Worland transform and associated Legendre transform.
+        Physical grids are set in the transform objects.
+        """
+        field = self._physical_field(worland_transform, legendre_transform)
+        return MeridionalSlice(field, self.m, worland_transform.r_grid, legendre_transform.grid)
+
+    def equatorial_slice(self,
+                         worland_transform: WorlandTransform,
+                         ) -> EquatorialSlice:
+        """
+        Compute the field at a equatorial slice.
+        """
+        legendre_transform = AssociatedLegendreTransformSingleM(self.maxnl, self.m, np.array([np.pi/2]))
+        field = self._physical_field(worland_transform, legendre_transform)
+        return EquatorialSlice(field, self.m, worland_transform.r_grid)
 
     def cylindrical_integration(self,
                                 sg: np.ndarray,

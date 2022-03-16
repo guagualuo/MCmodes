@@ -232,36 +232,148 @@ def cylindrical_integration(data, rg, tg, sg, n, average=False, kind='cubic') ->
     return interpolate.interp1d(sg, cyl_intg, kind=kind)
 
 
+@dataclass
+class EquatorialSlice(ABC):
+    """
+    Physical field of a vector field on the equatorial plane for a single m
+    Parameters
+    -----
+
+    data: Dict {str: ndarray}
+        field components
+
+    m: int
+        azimuthal wave number
+
+    rg: np.ndarray
+        grids in r
+
+    """
+    data: Dict[str, np.ndarray]
+    m: int
+    rg: np.ndarray
+
+    def __post_init__(self):
+        for k, v in self.data.items():
+            if len(v.shape) == 1:
+                self.data[k] = self.data[k].reshape(1, -1)
+            elif len(v.shape) == 2:
+                if v.shape[0] == 1:
+                    pass
+                elif v.shape[1] == 1:
+                    self.data[k] = v.reshape(1, -1)
+                else:
+                    raise RuntimeError("The data has to be 1D in r direction")
+            else:
+                raise RuntimeError("The data has to be 1D in r direction")
+
+    def __add__(self, other):
+        sum = {}
+        for comp in self.data.keys():
+            sum[comp] = self.data[comp] + other.data[comp]
+        return EquatorialSlice(sum, self.m, self.rg)
+
+    def at_equator(self,
+                   pg: np.ndarray,
+                   phase: float = 0.):
+        field = {}
+        for k, v in self.data.items():
+            field[k] = np.real(np.dot(np.exp(1.0j*self.m*pg).reshape(-1, 1), v) * np.exp(1.0j*phase))
+        return field
+
+    def visualise(self,
+                  nphi: int,
+                  phase: float = 0.,
+                  coord: str = 'spherical',
+                  name: str = '',
+                  title=True,
+                  **kwargs):
+        assert coord in ['spherical', 'cylindrical']
+        pg = np.linspace(0, np.pi*2, nphi+1)
+        rr, pp = np.meshgrid(self.rg, pg)
+        X2 = rr * np.sin(pp)
+        X1 = rr * np.cos(pp)
+        field = self.at_equator(pg, phase=phase)
+        if coord == 'cylindrical':
+            cy_field = {}
+            cy_field['s'] = field['r']
+            cy_field['phi'] = field['phi']
+            cy_field['z'] = -field['theta']
+            field = cy_field
+            titles = [fr"${name}_s$", fr"${name}_\phi$", fr"${name}_z$"]
+        else:
+            titles = [fr"${name}_r$", fr"${name}_\theta$", fr"${name}_\phi$"]
+        if 'ax' in kwargs:
+            axes = kwargs['ax']
+            assert len(axes) == 3
+        else:
+            fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
+        s = kwargs.get('s', 16)
+        delta = kwargs.get('exclude_BL', None)
+        j = None if delta is None else np.argmax(self.rg > 1 - delta)-1
+        for k, comp in enumerate(field.keys()):
+            ax = axes[k]
+            r = np.abs(field[comp]).max() if j is None else np.abs(field[comp][:, :j]).max()
+            vmin = kwargs.get('vmin', -r)
+            vmax = kwargs.get('vmax', r)
+            im = ax.pcolormesh(X1, X2, field[comp], shading='gouraud', cmap=plt.get_cmap('coolwarm'),
+                               vmin=vmin, vmax=vmax)
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            cax.tick_params(labelsize=s)
+            ax.set_xlim([-1, 1])
+            ax.set_ylim([-1, 1])
+            ax.set_aspect('equal', 'box')
+            ax.set_axis_off()
+            ax.tick_params(labelsize=s)
+            if title:
+                ax.set_title(titles[k], fontsize=s)
+            plt.colorbar(im, cax=cax)
+
+
 if __name__ == "__main__":
     from spectrum import SpectralComponentSingleM
     from operators.worland_transform import WorlandTransform
     from operators.associated_legendre_transform import AssociatedLegendreTransformSingleM
+    # nr, maxnl, m = 11, 21, 1
+    # nrg, ntg = 201, 201
+    # r_grid = np.linspace(0, 1.0, nrg)
+    # theta_grid = np.linspace(-np.pi/ntg/2, np.pi+np.pi/ntg/2, ntg)
+    # with Timer("transforms"):
+    #     worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
+    #     legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
+    #
+    #     sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
+    #     phy = sp.physical_field(worland_transform, legendre_transform)
+
+    """ test equatorial slice """
     nr, maxnl, m = 11, 21, 1
     nrg, ntg = 201, 201
     r_grid = np.linspace(0, 1.0, nrg)
-    theta_grid = np.linspace(-np.pi/ntg/2, np.pi+np.pi/ntg/2, ntg)
-    with Timer("transforms"):
-        worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
-        legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
+    theta_grid = np.array([np.pi/2])
+    worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
+    legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
 
-        sp = SpectralComponentSingleM.from_modes((11, 21), 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
-        phy = sp.physical_field(worland_transform, legendre_transform)
+    sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
+    phy = sp.equatorial_slice(worland_transform)
+    phy.visualise(nphi=200, coord="cylindrical")
+    plt.show()
 
     """ test cylindrical average """
-    cyl_phy = phy.to_cyl_coord()
-    sg = np.linspace(0.0, 1, 101)
-    fuphi_g = cylindrical_integration(cyl_phy['phi'], phy.grid['r'], phy.grid['theta'], sg,
-                                      n=(maxnl+2*nr)//2+8, average=True)
-
-    def reference(s):
-        from math import sqrt, pi
-        return (1 / (1155 * sqrt(21) * pi)) * (2409 * sqrt(2) + 1264 * sqrt(55) - \
-                                               4 * (17457 * sqrt(2) + 11749 * sqrt(55)) * s ** 2 + 24 * (9416 * sqrt(2) + 10735 * sqrt(55)) * s ** 4 - 256 * (660 * sqrt(2) + 1723 * sqrt(55)) * s ** 6 + 232960 * sqrt(55) * s ** 8)
+    # cyl_phy = phy.to_cyl_coord()
+    # sg = np.linspace(0.0, 1, 101)
+    # fuphi_g = cylindrical_integration(cyl_phy['phi'], phy.grid['r'], phy.grid['theta'], sg,
+    #                                   n=(maxnl+2*nr)//2+8, average=True)
+    #
+    # def reference(s):
+    #     from math import sqrt, pi
+    #     return (1 / (1155 * sqrt(21) * pi)) * (2409 * sqrt(2) + 1264 * sqrt(55) - \
+    #                                            4 * (17457 * sqrt(2) + 11749 * sqrt(55)) * s ** 2 + 24 * (9416 * sqrt(2) + 10735 * sqrt(55)) * s ** 4 - 256 * (660 * sqrt(2) + 1723 * sqrt(55)) * s ** 6 + 232960 * sqrt(55) * s ** 8)
 
     # plt.plot(sg, fuphi_g(sg).real)
     # plt.plot(sg, fuphi_g(sg).imag)
-    plt.plot(sg, reference(sg)-fuphi_g(sg).real)
-    plt.show()
+    # plt.plot(sg, reference(sg)-fuphi_g(sg).real)
+    # plt.show()
 
     """ test columnarity """
     # with Timer("columnarity"):
