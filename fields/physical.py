@@ -1,7 +1,7 @@
 """ Class for the physical fields """
 from dataclasses import dataclass
 from abc import ABC
-from typing import Callable, Dict
+from typing import Callable, Dict, Union, List
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -108,8 +108,11 @@ class MeridionalSlice(ABC):
     def visualise(self,
                   phi=0,
                   coord: str = 'spherical',
-                  name: str = '',
-                  title=True,
+                  field_name: str = '',
+                  xlim=(0, 1),
+                  ylim=(0, 1),
+                  vmax: List[float] = None,
+                  vmin: List[float] = None,
                   **kwargs):
         assert coord in ['spherical', 'cylindrical']
         rr, tt = np.meshgrid(self.grid['r'], self.grid['theta'])
@@ -117,45 +120,41 @@ class MeridionalSlice(ABC):
         X1 = rr * np.sin(tt)
         field = self.at_phi(phi=phi)
         if coord == 'cylindrical':
+            comps = ['s', 'phi', 'z']
             cy_field = {}
             cy_field['s'] = field['r']*np.sin(tt) + field['theta']*np.cos(tt)
             cy_field['phi'] = field['phi']
             cy_field['z'] = field['r']*np.cos(tt) - field['theta']*np.sin(tt)
             field = cy_field
-            titles = [fr"${name}_s$", fr"${name}_\phi$", fr"${name}_z$"]
+            titles = [fr"${field_name}_s$", fr"${field_name}_\phi$", fr"${field_name}_z$"]
         else:
-            titles = [fr"${name}_r$", fr"${name}_\theta$", fr"${name}_\phi$"]
-        if 'ax' in kwargs:
-            axes = kwargs['ax']
-            assert len(axes) == 3
+            comps = ['r', 'theta', 'phi']
+            titles = [fr"${field_name}_r$", fr"${field_name}_\theta$", fr"${field_name}_\phi$"]
+
+        if vmax is None:
+            vmax = [None, None, None]
         else:
-            fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
-        s = kwargs.get('s', 16)
-        delta = kwargs.get('exclude_BL', None)
-        j = None if delta is None else np.argmax(self.grid['r'] > 1 - delta)-1
-        for k, comp in enumerate(field.keys()):
-            ax = axes[k]
-            r = np.abs(field[comp]).max() if j is None else np.abs(field[comp][:, :j]).max()
-            vmin = kwargs.get('vmin', -r)
-            vmax = kwargs.get('vmax', r)
-            im = ax.pcolormesh(X1, X2, field[comp], shading='gouraud', cmap=plt.get_cmap('coolwarm'),
-                               vmin=vmin, vmax=vmax)
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            cax.tick_params(labelsize=s)
-            ax.set_xlim(kwargs.get('xlim', [0, 1]))
-            ax.set_ylim(kwargs.get('ylim', [0, 1]))
-            ax.set_aspect('equal', 'box')
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.tick_params(labelsize=s)
-            if title:
-                ax.set_title(titles[k], fontsize=s)
-            plt.colorbar(im, cax=cax)
+            assert len(vmax) == 3, "Number of vmaxs is not 3."
+        if vmin is None:
+            vmin = [None, None, None]
+        else:
+            assert len(vmin) == 3, "Number of vmins is not 3."
+        for i in range(3):
+            r = np.abs(field[comps[i]]).max()
+            if vmax[i] is None and vmin[i] is None:
+                vmax[i], vmin[i] = r, -r
+            elif vmin[i] is None:
+                vmin[i] = -r
+            elif vmax[i] is None:
+                vmax[i] = r
+
+        visu_components(X1, X2, field, titles=titles, vmax=vmax, vmin=vmin, xlim=xlim, ylim=ylim, **kwargs)
 
     def visualise_strength(self,
-                           name: str = '',
-                           title=True,
+                           title: str = None,
+                           vmax: float = None,
+                           xlim=(0, 1),
+                           ylim=(0, 1),
                            **kwargs):
         rr, tt = np.meshgrid(self.grid['r'], self.grid['theta'])
         X2 = rr * np.cos(tt)
@@ -166,70 +165,9 @@ class MeridionalSlice(ABC):
             field += np.abs(self.data[comp])**2
         field = np.sqrt(field)
 
-        title_ = fr'${name}$'
-        if 'ax' in kwargs:
-            ax = kwargs['ax']
-        else:
-            fig, ax = plt.subplots(figsize=(8, 8))
-        s = kwargs.get('s', 16)
-        delta = kwargs.get('exclude_BL', None)
-        j = None if delta is None else np.argmax(self.grid['r'] > 1 - delta) - 1
-
-        r = field.max() if j is None else field[:, :j].max()
-        vmin = 0
-        vmax = kwargs.get('vmax', r)
-        im = ax.pcolormesh(X1, X2, field, shading='gouraud', cmap=plt.get_cmap('coolwarm'),
-                           vmin=vmin, vmax=vmax)
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        cax.tick_params(labelsize=s)
-        ax.set_xlim(kwargs.get('xlim', [0, 1]))
-        ax.set_ylim(kwargs.get('ylim', [0, 1]))
-        ax.set_aspect('equal', 'box')
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.tick_params(labelsize=s)
-        if title:
-            ax.set_title(title_, fontsize=s)
-        plt.colorbar(im, cax=cax)
-
-
-def cylindrical_integration(data, rg, tg, sg, n, average=False, kind='cubic') -> Callable:
-    """
-    cylindrical integration of data on spherical grids, using interpolation, not exact
-    """
-    from scipy.interpolate import griddata, interp2d, interpolate
-    dtype = data.dtype
-    # prepare grids for interpolation
-    nr, ntheta, ns = rg.shape[0], tg.shape[0], sg.shape[0]
-    values = np.reshape(data, (nr*ntheta, ))
-    rr, tt = np.meshgrid(rg, tg)
-    ss, zz = rr * np.sin(tt), rr * np.cos(tt)
-    points = np.concatenate([ss.reshape(-1, 1), zz.reshape(-1, 1)], axis=1)
-    x, w = np.polynomial.legendre.leggauss(n)
-    sgrid = np.zeros((sg.shape[0], x.shape[0]))
-    zgrid = np.zeros((sg.shape[0], x.shape[0]))
-    for i in range(sg.shape[0]):
-        sgrid[i, :] = sg[i]
-        zgrid[i, :] = x * np.sqrt(1. - sg[i] ** 2)
-
-    # interpolation
-    interp_cubic = griddata(points, values, (sgrid, zgrid), method='cubic')
-    interp_nearest = griddata(points, values, (sgrid, zgrid), method='nearest')
-    idx = np.isnan(interp_cubic)
-    interp_cubic[np.isnan(interp_cubic)] = 0.
-    interp_boundary = np.zeros(interp_cubic.shape, dtype=dtype)
-    interp_boundary[idx] = interp_nearest[idx]
-    cyl_data = interp_cubic + interp_boundary
-    # integration
-    cyl_intg = np.zeros(sg.shape, dtype=dtype)
-    for i in range(sg.shape[0]):
-        if average:
-            cyl_intg[i] = 0.5 * w.dot(cyl_data[i, :])
-        else:
-            cyl_intg[i] = 0.5 * w.dot(cyl_data[i, :]) * 2*np.sqrt(1-sg[i]**2)
-
-    return interpolate.interp1d(sg, cyl_intg, kind=kind)
+        if vmax is None:
+            vmax = field.max()
+        visu_component(X1, X2, field, title=title, vmax=vmax, vmin=0, xlim=xlim, ylim=ylim, **kwargs)
 
 
 @dataclass
@@ -285,8 +223,11 @@ class EquatorialSlice(ABC):
                   nphi: int,
                   phase: float = 0.,
                   coord: str = 'spherical',
-                  name: str = '',
-                  title=True,
+                  field_name: str = '',
+                  xlim=(-1, 1),
+                  ylim=(-1, 1),
+                  vmax: List[float] = None,
+                  vmin: List[float] = None,
                   **kwargs):
         assert coord in ['spherical', 'cylindrical']
         pg = np.linspace(0, np.pi*2, nphi+1)
@@ -295,68 +236,175 @@ class EquatorialSlice(ABC):
         X1 = rr * np.cos(pp)
         field = self.at_equator(pg, phase=phase)
         if coord == 'cylindrical':
+            comps = ['s', 'phi', 'z']
             cy_field = {}
             cy_field['s'] = field['r']
             cy_field['phi'] = field['phi']
             cy_field['z'] = -field['theta']
             field = cy_field
-            titles = [fr"${name}_s$", fr"${name}_\phi$", fr"${name}_z$"]
+            titles = [fr"${field_name}_s$", fr"${field_name}_\phi$", fr"${field_name}_z$"]
         else:
-            titles = [fr"${name}_r$", fr"${name}_\theta$", fr"${name}_\phi$"]
-        if 'ax' in kwargs:
-            axes = kwargs['ax']
-            assert len(axes) == 3
+            comps = ['r', 'theta', 'phi']
+            titles = [fr"${field_name}_r$", fr"${field_name}_\theta$", fr"${field_name}_\phi$"]
+
+        if vmax is None:
+            vmax = [None, None, None]
         else:
-            fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
-        s = kwargs.get('s', 16)
-        delta = kwargs.get('exclude_BL', None)
-        j = None if delta is None else np.argmax(self.rg > 1 - delta)-1
-        for k, comp in enumerate(field.keys()):
-            ax = axes[k]
-            r = np.abs(field[comp]).max() if j is None else np.abs(field[comp][:, :j]).max()
-            vmin = kwargs.get('vmin', -r)
-            vmax = kwargs.get('vmax', r)
-            im = ax.pcolormesh(X1, X2, field[comp], shading='gouraud', cmap=plt.get_cmap('coolwarm'),
-                               vmin=vmin, vmax=vmax)
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            cax.tick_params(labelsize=s)
-            ax.set_xlim([-1, 1])
-            ax.set_ylim([-1, 1])
-            ax.set_aspect('equal', 'box')
-            ax.set_axis_off()
-            ax.tick_params(labelsize=s)
-            if title:
-                ax.set_title(titles[k], fontsize=s)
-            plt.colorbar(im, cax=cax)
+            assert len(vmax) == 3, "Number of vmaxs is not 3."
+        if vmin is None:
+            vmin = [None, None, None]
+        else:
+            assert len(vmin) == 3, "Number of vmins is not 3."
+        for i in range(3):
+            r = np.abs(field[comps[i]]).max()
+            if vmax[i] is None and vmin[i] is None:
+                vmax[i], vmin[i] = r, -r
+            elif vmin[i] is None:
+                vmin = -r
+            elif vmax[i] is None:
+                vmax = r
+
+        visu_components(X1, X2, field, titles=titles, vmax=vmax, vmin=vmin, xlim=xlim, ylim=ylim, **kwargs)
+
+
+def visu_component(X1, X2,
+                   field: np.ndarray,
+                   title: str = None,
+                   vmax=None,
+                   vmin=None,
+                   **kwargs):
+    """
+    Visualise one component
+    """
+    if 'ax' in kwargs:
+        ax = kwargs['ax']
+    else:
+        fig, ax = plt.subplots(figsize=(8, 8))
+    s = kwargs.get('s', 16)
+
+    im = ax.pcolormesh(X1, X2, field, shading='gouraud', cmap=plt.get_cmap('coolwarm'),
+                       vmin=vmin, vmax=vmax)
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cax.tick_params(labelsize=s)
+    ax.set_aspect('equal', 'box')
+    ax.set_xlim(kwargs.get('xlim', None))
+    ax.set_ylim(kwargs.get('ylim', None))
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    if xmin < 0:
+        ax.spines['left'].set_visible(False)
+        ax.axes.yaxis.set_visible(False)
+    if xmax > 0:
+        ax.spines['right'].set_visible(False)
+    if ymin < 0:
+        ax.spines['bottom'].set_visible(False)
+        ax.axes.xaxis.set_visible(False)
+    if ymax > 0:
+        ax.spines['top'].set_visible(False)
+    ax.tick_params(labelsize=s)
+    if title is not None:
+        ax.set_title(title, fontsize=s)
+    plt.colorbar(im, cax=cax)
+
+
+def visu_components(X1, X2,
+                    field: Dict[str, np.ndarray],
+                    titles: List[str] = None,
+                    vmax: Union[float, List[float]] = None,
+                    vmin: Union[float, List[float]] = None,
+                    **kwargs):
+    """
+    Visualise field components
+    """
+    assert len(field) == 3, "Not 3 components field."
+    if titles is not None:
+        assert len(titles) == 3, "Number of titles is not 3."
+    if vmax is not None:
+        if isinstance(vmax, float):
+            vmax = [vmax]*3
+        assert len(vmax) == 3, "Number of vmaxs is not 3."
+    if vmin is not None:
+        if isinstance(vmin, float):
+            vmin = [vmin]*3
+        assert len(vmin) == 3, "Number of vmins is not 3."
+
+    if 'ax' in kwargs:
+        axes = kwargs['ax']
+        assert len(axes) == 3, "Number of axes is not 3."
+    else:
+        fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
+
+    for k, comp in enumerate(field.keys()):
+        ax = axes[k]
+        visu_component(X1, X2, field[comp], title=titles[k], vmax=vmax[k], vmin=vmin[k], ax=ax, **kwargs)
+
+
+def cylindrical_integration(data, rg, tg, sg, n, average=False, kind='cubic') -> Callable:
+    """
+    cylindrical integration of data on spherical grids, using interpolation, not exact
+    """
+    from scipy.interpolate import griddata, interp2d, interpolate
+    dtype = data.dtype
+    # prepare grids for interpolation
+    nr, ntheta, ns = rg.shape[0], tg.shape[0], sg.shape[0]
+    values = np.reshape(data, (nr*ntheta, ))
+    rr, tt = np.meshgrid(rg, tg)
+    ss, zz = rr * np.sin(tt), rr * np.cos(tt)
+    points = np.concatenate([ss.reshape(-1, 1), zz.reshape(-1, 1)], axis=1)
+    x, w = np.polynomial.legendre.leggauss(n)
+    sgrid = np.zeros((sg.shape[0], x.shape[0]))
+    zgrid = np.zeros((sg.shape[0], x.shape[0]))
+    for i in range(sg.shape[0]):
+        sgrid[i, :] = sg[i]
+        zgrid[i, :] = x * np.sqrt(1. - sg[i] ** 2)
+
+    # interpolation
+    interp_cubic = griddata(points, values, (sgrid, zgrid), method='cubic')
+    interp_nearest = griddata(points, values, (sgrid, zgrid), method='nearest')
+    idx = np.isnan(interp_cubic)
+    interp_cubic[np.isnan(interp_cubic)] = 0.
+    interp_boundary = np.zeros(interp_cubic.shape, dtype=dtype)
+    interp_boundary[idx] = interp_nearest[idx]
+    cyl_data = interp_cubic + interp_boundary
+    # integration
+    cyl_intg = np.zeros(sg.shape, dtype=dtype)
+    for i in range(sg.shape[0]):
+        if average:
+            cyl_intg[i] = 0.5 * w.dot(cyl_data[i, :])
+        else:
+            cyl_intg[i] = 0.5 * w.dot(cyl_data[i, :]) * 2*np.sqrt(1-sg[i]**2)
+
+    return interpolate.interp1d(sg, cyl_intg, kind=kind)
 
 
 if __name__ == "__main__":
     from spectrum import SpectralComponentSingleM
     from operators.worland_transform import WorlandTransform
     from operators.associated_legendre_transform import AssociatedLegendreTransformSingleM
-    # nr, maxnl, m = 11, 21, 1
-    # nrg, ntg = 201, 201
-    # r_grid = np.linspace(0, 1.0, nrg)
-    # theta_grid = np.linspace(-np.pi/ntg/2, np.pi+np.pi/ntg/2, ntg)
-    # with Timer("transforms"):
-    #     worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
-    #     legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
-    #
-    #     sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
-    #     phy = sp.physical_field(worland_transform, legendre_transform)
-
-    """ test equatorial slice """
     nr, maxnl, m = 11, 21, 1
     nrg, ntg = 201, 201
     r_grid = np.linspace(0, 1.0, nrg)
-    theta_grid = np.array([np.pi/2])
-    worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
-    legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
+    theta_grid = np.linspace(0, np.pi, 2*ntg)
+    with Timer("transforms"):
+        worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
+        legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
 
-    sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
-    phy = sp.equatorial_slice(worland_transform)
-    phy.visualise(nphi=200, coord="cylindrical")
+        sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
+        phy = sp.physical_field(worland_transform, legendre_transform)
+        phy.visualise(phi=np.pi/2, ylim=(-1, 1))
+
+    """ test equatorial slice """
+    # nr, maxnl, m = 11, 21, 1
+    # nrg, ntg = 201, 201
+    # r_grid = np.linspace(0, 1.0, nrg)
+    # theta_grid = np.array([np.pi/2])
+    # worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
+    # legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
+    #
+    # sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
+    # phy = sp.equatorial_slice(worland_transform)
+    # phy.visualise(nphi=200, coord="cylindrical", field_name='u')
     plt.show()
 
     """ test cylindrical average """
