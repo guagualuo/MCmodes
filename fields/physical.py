@@ -1,7 +1,7 @@
 """ Class for the physical fields """
 from dataclasses import dataclass
 from abc import ABC
-from typing import Callable, Dict, Union, List
+from typing import Callable, Dict, Union, List, Literal
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -168,6 +168,78 @@ class MeridionalSlice(ABC):
         if vmax is None:
             vmax = field.max()
         visu_component(X1, X2, field, title=title, vmax=vmax, vmin=0, xlim=xlim, ylim=ylim, **kwargs)
+
+
+@dataclass
+class CMBSlice(ABC):
+    """
+    Physical field of a vector field on the CMB surface for a single m
+    Parameters
+    -----
+    data: Dict {str: ndarray}
+        field components
+
+    m: int
+        azimuthal wave number
+
+    tg: np.ndarray
+        grids in theta
+
+    """
+    data: Dict[str, np.ndarray]
+    m: int
+    tg: np.ndarray
+
+    def __post_init__(self):
+        for k, v in self.data.items():
+            if len(v.shape) == 1:
+                self.data[k] = self.data[k].reshape(-1, 1)
+            elif len(v.shape) == 2:
+                if v.shape[1] == 1:
+                    pass
+                elif v.shape[0] == 1:
+                    self.data[k] = v.reshape(-1, 1)
+                else:
+                    raise RuntimeError("The data has to be 1D in theta direction")
+            else:
+                raise RuntimeError("The data has to be 1D in theta direction")
+
+    def __add__(self, other):
+        sum = {}
+        for comp in self.data.keys():
+            sum[comp] = self.data[comp] + other.data[comp]
+        return CMBSlice(sum, self.m, self.tg)
+
+    def at_cmb(self,
+                   pg: np.ndarray,
+                   phase: float = 0.):
+        field = {}
+        for k, v in self.data.items():
+            field[k] = np.real(np.dot(v, np.exp(1.0j*self.m*pg).reshape(1, -1)) * np.exp(1.0j*phase))
+        return field
+
+    def visualise(self,
+                  nphi: int,
+                  component: str = Literal["r", "theta", "phi"],
+                  phase: float = 0.,
+                  field_name: str = '',
+                  **kwargs):
+        pg = np.linspace(-np.pi, np.pi, nphi+1)
+        field = self.at_cmb(pg, phase=phase)[component]
+        lon, lat = np.meshgrid(pg, np.pi/2-self.tg)
+
+        ax = plt.subplot(111, projection="aitoff")
+        vmax, vmin = kwargs.get("vmax", None), kwargs.get("vmin", None)
+        if vmax is None and vmin is None:
+            r = np.abs(field).max()
+            vmax, vmin = r, -r
+
+        s = kwargs.get('s', 16)
+        plt.pcolormesh(lon, lat, field, shading='gouraud', vmin=vmin, vmax=vmax, cmap=plt.get_cmap('coolwarm'))
+        titles = {"r": fr"${field_name}_r$", "theta": fr"${field_name}_\theta$", "phi": fr"${field_name}_\phi$"}
+        ax.set_title(titles[component], fontsize=s)
+        plt.colorbar(orientation="horizontal")
+        plt.axis('off')
 
 
 @dataclass
@@ -386,25 +458,21 @@ if __name__ == "__main__":
     nrg, ntg = 201, 201
     r_grid = np.linspace(0, 1.0, nrg)
     theta_grid = np.linspace(0, np.pi, 2*ntg)
-    with Timer("transforms"):
-        worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
-        legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
+    worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
+    legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
 
-        sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
-        phy = sp.physical_field(worland_transform, legendre_transform)
-        phy.visualise(phi=np.pi/2, ylim=(-1, 1))
+    sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
+    # phy = sp.physical_field(worland_transform, legendre_transform)
+    # phy.visualise(phi=np.pi/2, ylim=(-1, 1))
 
     """ test equatorial slice """
-    # nr, maxnl, m = 11, 21, 1
-    # nrg, ntg = 201, 201
-    # r_grid = np.linspace(0, 1.0, nrg)
-    # theta_grid = np.array([np.pi/2])
-    # worland_transform = WorlandTransform(nr, maxnl, m, None, r_grid)
-    # legendre_transform = AssociatedLegendreTransformSingleM(maxnl, m, theta_grid)
-    #
-    # sp = SpectralComponentSingleM.from_modes(11, 21, 1, 'tor', [(2, 2, 1), (3, 2, 1), (4, 2, 1)])
     # phy = sp.equatorial_slice(worland_transform)
     # phy.visualise(nphi=200, coord="cylindrical", field_name='u')
+    # plt.show()
+
+    """ test CMB plot """
+    phy = sp.cmb_slice(201)
+    phy.visualise(201, component="phi")
     plt.show()
 
     """ test cylindrical average """

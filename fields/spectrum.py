@@ -5,7 +5,7 @@ import numpy as np
 
 from operators.worland_transform import WorlandTransform
 from operators.associated_legendre_transform import AssociatedLegendreTransformSingleM
-from fields.physical import MeridionalSlice, EquatorialSlice
+from fields.physical import MeridionalSlice, EquatorialSlice, CMBSlice
 from operators.polynomials import *
 from utils import *
 
@@ -168,6 +168,18 @@ class SpectralComponentSingleM(ABC):
         """
         field = self._physical_field(worland_transform, legendre_transform)
         return MeridionalSlice(field, self.m, worland_transform.r_grid, legendre_transform.grid)
+
+    def cmb_slice(self,
+                  ntg: int,
+                  half_cmb: bool = True):
+        """
+        Compute physical fields at CMB
+        """
+        tg = np.linspace(0, np.pi/2, ntg) if half_cmb else np.linspace(0, np.pi, ntg)
+        worland_transform = WorlandTransform(self.nr, self.maxnl, self.m, r_grid=np.array([1.0]))
+        legendre_transform = AssociatedLegendreTransformSingleM(self.maxnl, self.m, tg)
+        field = self._physical_field(worland_transform, legendre_transform)
+        return CMBSlice(field, self.m, tg)
 
     def equatorial_slice(self,
                          worland_transform: WorlandTransform,
