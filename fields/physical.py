@@ -404,8 +404,9 @@ def visu_components(X1, X2,
     if 'ax' in kwargs:
         axes = kwargs['ax']
         assert len(axes) == 3, "Number of axes is not 3."
+        kwargs.pop("ax")
     else:
-        fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
+        fig, axes = plt.subplots(ncols=3, figsize=(14, 4))
 
     for k, comp in enumerate(field.keys()):
         ax = axes[k]
