@@ -427,6 +427,24 @@ class VectorFieldSingleM:
         return self.components["tor"].physical_field(worland_transform, legendre_transform) + \
             self.components["pol"].physical_field(worland_transform, legendre_transform)
 
+    def cmb_slice(self,
+                  ntg: int,
+                  half_cmb: bool = True
+                  ) -> CMBSlice:
+        """
+        Compute physical fields at CMB
+        """
+        return self.components["tor"].cmb_slice(ntg, half_cmb) + self.components["pol"].cmb_slice(ntg, half_cmb)
+
+    def equatorial_slice(self,
+                         worland_transform: WorlandTransform
+                         ) -> EquatorialSlice:
+        """
+        Compute physical fields at the equatorial slice
+        """
+        return self.components["tor"].equatorial_slice(worland_transform) + \
+               self.components["pol"].equatorial_slice(worland_transform)
+
     def curl(self):
         """ Transform to curl of the field """
         self.components["tor"].curl()
