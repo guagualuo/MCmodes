@@ -249,7 +249,7 @@ def Plm(m, lmax, theta):
 
     if lmax == m:
         C = np.exp(-0.5 * special.loggamma(2 * m + 1)) * np.sqrt((2. * m + 1.) / (4. * np.pi))
-        val = C * (-1.) ** m * special.factorial2(2 * m - 1) * np.exp(m / 2. * np.log(1. - np.cos(theta) ** 2))
+        val = C * (-1.) ** m * special.factorial2(2 * m - 1) * (1. - np.cos(theta) ** 2) ** (m / 2.)
         return val.reshape(-1, 1)
     elif lmax > m:
         vals = []
