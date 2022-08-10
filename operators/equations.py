@@ -1,15 +1,18 @@
-from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from abc import ABC
 from typing import List
-import matplotlib.pyplot as plt
+import numpy as np
 import scipy.sparse as scsp
 
-from operators import WorlandTransform
+from operators import WorlandTransform, ChebyshevTransform
+from operators.chebyshev_recurrence import quicc_norm, inv_quicc_norm
 from operators.polynomials import SphericalHarmonicMode
 from utils import Timer
 import quicc.geometry.spherical.sphere_worland as geo
+import quicc.geometry.spherical.shell as sgeo
 import operators.quicc_supplements.sphere_worland as supp_geo
 import quicc.geometry.spherical.sphere_radius_boundary_worland as wbc
+import quicc.geometry.spherical.shell_radius_boundary as sbc
 from quicc.geometry.spherical.sphere_boundary_worland import no_bc
 
 
@@ -391,15 +394,128 @@ class MomentumEquation(_BaseEquation):
         return self._coriolis
 
 
-if __name__ == "__main__":
-    nr, maxnl, m = 11, 11, 1
-    n_grid = 120
-    with Timer("init op"):
-        transform = WorlandTransform(nr, maxnl, m, n_grid)
-    beta_mode = SphericalHarmonicMode("tor", 1, 0, "2 Sqrt[pi/3] r")
-    with Timer("build induction"):
-        induction_eq = InductionEquation(nr, maxnl, m)
-        ind_op = induction_eq.induction(transform, [beta_mode], imposed_flow=False, quasi_inverse=False)
-        # ind_op[np.abs(ind_op) < 1e-12] = 0
-    plt.spy(ind_op).set_marker('.')
-    plt.show()
+@dataclass
+class InductionEquationShell(_BaseEquation):
+    """
+    Class for the induction equation in a spherical shell
+
+    Parameters
+    -----
+
+    nr: number of radial modes, starting from 0
+
+    maxnl: maximal spherical harmonic degree L + 1 = maxnl
+
+    m: azimuthal wave number
+
+    ri: inner core radius, outer core radius be ri+1
+
+    """
+    ri: float
+
+    def __post_init__(self):
+        super(InductionEquationShell, self).__post_init__()
+        self.bc = {'tor': {0: 20}, 'pol': {0: 23}}
+        a, b = self._get_ab_consts()
+        self.bc['pol']['c'] = {'a': a, 'b': b, 'l': -1}
+        # initialise simple linear operators
+        self._init_operators()
+
+    def _get_ab_consts(self):
+        return 0.5, 0.5 + self.ri
+
+    def _init_operators(self):
+        """
+        Initialise simple linear operators
+        """
+        super(InductionEquationShell, self)._init_operators()
+
+    def induction(self,
+                  transform: ChebyshevTransform,
+                  beta_modes: List[SphericalHarmonicMode],
+                  imposed_flow: bool,
+                  quasi_inverse: bool,
+                  ):
+        """
+        Induction term curl (u x B_0), in which B_0 is the background field.
+                r^2 [ r.curl2(t_a x B_0), r.curl2(s_a x B_0)
+                    r.curl1(t_a x B0), r.curl1(s_a x B_0)]
+        r^2 factor to cast terms into polynomials, consistent with the diffusion term
+
+        Parameters
+        -----
+        transform: Chebyshev transform obeject that implements all 8 possible combinations
+
+        beta_modes: Spherical harmonic modes of B_0 or u
+
+        imposed_flow: whether impose u or B in the induction term curl(u x B).
+            If set True, it can be used for the kinematic dynamo problem, for example.
+
+        quasi_inverse: whether to apply quasi-inverse operator to the induction.
+
+        """
+        nr, maxnl, m = self.res
+        r_factor = 2
+        if len(beta_modes) > 0:
+            tt = sum([transform.curl2tt(mode, r_factor) + transform.curl2ts(mode, r_factor) for mode in beta_modes])
+            ts = sum([transform.curl2st(mode, r_factor) + transform.curl2ss(mode, r_factor) for mode in beta_modes])
+            st = sum([transform.curl1tt(mode) + transform.curl1ts(mode, r_factor) for mode in beta_modes])
+            ss = sum([transform.curl1st(mode, r_factor) + transform.curl1ss(mode, r_factor) for mode in beta_modes])
+            sign = -1.0 if imposed_flow else 1.0
+            op = sign * self._inv_quicc_norm @ scsp.bmat([[tt, ts], [st, ss]], format='csc') @ self._quicc_norm
+            if quasi_inverse:
+                op = self.quasi_inverse @ op
+            return op
+        else:
+            return scsp.csc_matrix((2*nr*(maxnl-m), 2*nr*(maxnl-m)))
+
+    def _create_quicc_norm(self):
+        nr, maxnl, m = self.res
+        self._quicc_norm = scsp.diags(np.concatenate([quicc_norm(nr) for _ in range(2*(maxnl-m))]))
+        self._inv_quicc_norm = scsp.diags(np.concatenate([inv_quicc_norm(nr) for _ in range(2*(maxnl-m))]))
+
+    def _create_quasi_inverse(self):
+        """
+        Quasi-inverse operator, only apply to the induction part with pre-multiplied r^2 factor
+        """
+        nr, maxnl, m = self.res
+        a, b = self._get_ab_consts()
+
+        if self.bc is not None:
+            bc = no_bc()
+            self._quasi_inverse = scsp.block_diag((sgeo.i2(nr, maxnl, m, a, b, bc, l_zero_fix='zero'),
+                                                   sgeo.i2(nr, maxnl, m, a, b, bc, l_zero_fix='zero')))
+
+    def _create_mass(self):
+        """
+        Mass operator
+        """
+        nr, maxnl, m = self.res
+        bc = no_bc()
+        a, b = self._get_ab_consts()
+
+        i2r2 = scsp.block_diag((sgeo.i2r2(nr, maxnl, m, a, b, bc, with_sh_coeff='laplh', l_zero_fix='zero'),
+                                sgeo.i2r2(nr, maxnl, m, a, b, bc, with_sh_coeff='laplh', l_zero_fix='zero')))
+        self._mass = i2r2
+
+    def _create_diffusion(self):
+        """
+        Build the dissipation matrix for the magnetic field, insulating boundary condition
+        """
+        nr, maxnl, m = self.res
+        a, b = self._get_ab_consts()
+        self._diffusion = scsp.block_diag((sgeo.i2r2lapl(nr, maxnl, m, a, b, bc=self.bc['tor'], with_sh_coeff='laplh', l_zero_fix='set'),
+                                           sgeo.i2r2lapl(nr, maxnl, m, a, b, bc=self.bc['pol'], with_sh_coeff='laplh', l_zero_fix='set')))
+
+    @property
+    def mass(self):
+        return self._mass
+
+    @property
+    def quasi_inverse(self):
+        return self._quasi_inverse
+
+    @property
+    def diffusion(self):
+        return self._diffusion
+

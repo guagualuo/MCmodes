@@ -1,2 +1,3 @@
 from operators.associated_legendre_transform import AssociatedLegendreTransformSingleM
 from operators.worland_transform import WorlandTransform
+from operators.chebyshev_transform import ChebyshevTransform

@@ -1,6 +1,6 @@
-import dataclasses
-from dataclasses import dataclass
-from typing import Union, Dict
+from abc import abstractmethod
+from dataclasses import field
+from typing import Union
 
 from operators.equations import *
 from operators.worland_transform import WorlandTransform
@@ -22,17 +22,20 @@ class _BaseModel(ABC):
 
     n_grid: the number of radial grids.
 
+    ri: the inner core radius
+
     """
     nr: int
     maxnl: int
     m: int
     n_grid: int = field(default=None)
+    ri: float = 0
 
     def __post_init__(self):
         self._check_params()
         self.res = self.nr, self.maxnl, self.m
         if self.n_grid is None:
-            self.n_grid = self.nr + self.maxnl // 2 + 11
+            self.n_grid = self.nr + self.maxnl // 2 + 21
 
     @abstractmethod
     def setup_operator(self, *args, **kwargs):
@@ -57,6 +60,9 @@ class _BaseModel(ABC):
             raise RuntimeWarning(f"m must be non-negative")
         if isinstance(self.n_grid, int) and self.n_grid <= 0:
             raise RuntimeWarning(f"n_grid must be positive")
+        if self.ri < 0:
+            raise RuntimeWarning("ri must be non-negative")
+        self.shell = True if self.ri > 0 else False
 
 
 @dataclass
@@ -76,16 +82,29 @@ class FreeDecay:
     component: str
     nr: int
     l: int
+    ri: float = 0
 
     def __post_init__(self):
         self._check_params()
-        bcs = {'tor': {0: 10}, 'pol': {0: 13}}
+        if self.shell:
+            bcs = {'tor': {0: 20}, 'pol': {0: 23}}
+        else:
+            bcs = {'tor': {0: 10}, 'pol': {0: 13}}
         self.bc = bcs[self.component]
+        a, b = 0.5, 0.5 + self.ri
+        if self.shell and self.component == "pol":
+            self.bc['c'] = {"a": a, "b": b, "l": self.l}
 
     def setup_eigen_problem(self):
-        import quicc.geometry.spherical.sphere_radius_worland as rad
-        A = rad.i2lapl(self.nr, self.l, self.bc, coeff=self.l*(self.l+1))
-        B = rad.i2(self.nr, self.l, {0: 0}, coeff=self.l*(self.l+1))
+        if self.shell:
+            import quicc.geometry.spherical.shell_radius as rad
+            a, b = 0.5, 0.5 + self.ri
+            A = rad.i2r2lapl(self.nr, self.l, a, b, self.bc, coeff=self.l * (self.l + 1))
+            B = rad.i2r2(self.nr, a, b, {0: 0}, coeff=self.l * (self.l + 1))
+        else:
+            import quicc.geometry.spherical.sphere_radius_worland as rad
+            A = rad.i2lapl(self.nr, self.l, self.bc, coeff=self.l*(self.l+1))
+            B = rad.i2(self.nr, self.l, {0: 0}, coeff=self.l*(self.l+1))
         return A, B
 
     def _check_params(self):
@@ -95,6 +114,9 @@ class FreeDecay:
             raise RuntimeWarning("nr must be positive")
         if self.l <= 0:
             raise RuntimeWarning("l must be positive")
+        if self.ri < 0:
+            raise RuntimeWarning("ri must be non-negative")
+        self.shell = True if self.ri > 0 else False
 
 
 @dataclass
@@ -112,14 +134,20 @@ class KinematicDynamo(_BaseModel):
 
     n_grid: the number of radial grids.
 
+    ri: inner core radius
+
     induction_eq_params: setup for the induction equation.
     """
     induction_eq_params: dict = field(default_factory=dict)
 
     def __post_init__(self):
         super(KinematicDynamo, self).__post_init__()
-        self.transform = WorlandTransform(self.nr, self.maxnl, self.m, self.n_grid, require_curl=False)
-        self.induction_eq = InductionEquation(self.nr, self.maxnl, self.m, **self.induction_eq_params)
+        if self.shell:
+            self.transform = ChebyshevTransform(self.nr, self.maxnl, self.m, self.ri, self.n_grid, require_curl=False)
+            self.induction_eq = InductionEquationShell(self.nr, self.maxnl, self.m, self.ri)
+        else:
+            self.transform = WorlandTransform(self.nr, self.maxnl, self.m, self.n_grid, require_curl=False)
+            self.induction_eq = InductionEquation(self.nr, self.maxnl, self.m, **self.induction_eq_params)
 
     def setup_operator(self, flow_modes: List[SphericalHarmonicMode], setup_eigen=False, **kwargs):
         induction_mat = self.induction_eq.induction(self.transform, flow_modes, imposed_flow=True, quasi_inverse=True)
