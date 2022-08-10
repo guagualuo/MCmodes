@@ -64,14 +64,12 @@ def chebyshev(nr, rg, ri, coe=1.0):
 def Dchebyshev(nr, rg, ri, coe=1.0):
     xg = 2 * (rg - ri) - 1
     norm = np.diag([chebyshev_norm(n) for n in range(nr)])
-    # return Dchebyshev1(nr, xg, coe) @ norm
     return 2*Dchebyshev1(nr, xg, coe) @ norm
 
 
 def D2chebyshev(nr, rg, ri, coe=1.0):
     xg = 2 * (rg - ri) - 1
     norm = np.diag([chebyshev_norm(n) for n in range(nr)])
-    # return D2chebyshev1(nr, xg, coe) @ norm
     return 4*D2chebyshev1(nr, xg, coe) @ norm
 
 
@@ -102,23 +100,3 @@ def quicc_norm(nr):
 def inv_quicc_norm(nr):
     """ weights to convert normalised basis to QuICC basis """
     return np.array([1/np.pi**0.5 if n == 0 else (2/np.pi)**0.5/2 for n in range(nr)])
-
-
-if __name__ == "__main__":
-    ri = 0.35
-    nrg = 30
-    nr = 11
-    rg = chebyshev_grid(nrg=nrg, ri=ri)
-
-    t = chebyshev(nr, rg, ri)
-    weight = np.diag(chebyshev_weight(nrg) * np.ones(nrg))
-    tmp = t.T @ weight @ t
-    print(np.allclose(tmp, np.identity(nr)))
-
-    ri = 0.0001
-    nr = 6
-    rg = np.linspace(ri, ri+1, 101)[1:-1]
-    t = chebyshev(nr, rg, ri)
-    divrdiffrt = divrdiffrT(nr, rg, ri)
-    diff2rt = diff2rT(nr, rg, ri)
-    divrt = divrT(nr, rg, ri)
