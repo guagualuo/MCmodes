@@ -234,6 +234,8 @@ class MagnetoCoriolis(_BaseModel):
 
     n_grid: the number of radial grids.
 
+    ri: inner core radius
+
     inviscid: If True, the viscous diffusion term is set to zero
 
     bc_type: boundary condition for viscous u. Ignored when `inviscid` is True.
@@ -247,20 +249,27 @@ class MagnetoCoriolis(_BaseModel):
 
     def __post_init__(self):
         super(MagnetoCoriolis, self).__post_init__()
-        self._check_params()
 
         nr, maxnl, m = self.res
-        self.transform = WorlandTransform(nr, maxnl, m, self.n_grid, require_curl=True)
-        self.induction_eq = InductionEquation(*self.res, **self.induction_eq_params)
-        self.momentum_eq = MomentumEquation(*self.res, inviscid=self.inviscid, bc_type=self.bc_type)
+        if self.shell:
+            self.transform = ChebyshevTransform(nr, maxnl, m, self.ri, self.n_grid, require_curl=True)
+            self.induction_eq = InductionEquationShell(nr, maxnl, m, self.ri)
+            self.momentum_eq = MomentumEquationShell(nr, maxnl, m, self.ri, inviscid=self.inviscid, bc_type=self.bc_type)
+        else:
+            self.transform = WorlandTransform(nr, maxnl, m, self.n_grid, require_curl=True)
+            self.induction_eq = InductionEquation(*self.res, **self.induction_eq_params)
+            self.momentum_eq = MomentumEquation(*self.res, inviscid=self.inviscid, bc_type=self.bc_type)
         if self.induction_eq.galerkin:
             self.dim = {'u': 2 * nr * (maxnl - m), 'b': 2 * (nr - 1) * (maxnl - m)}
         else:
             self.dim = {'u': 2 * nr * (maxnl - m), 'b': 2 * nr * (maxnl - m)}
 
     def _check_params(self):
+        super(MagnetoCoriolis, self)._check_params()
         if not self.inviscid and self.bc_type is None:
             raise RuntimeWarning("no boundary condition of u is specified when viscous dissipation is present")
+        if self.induction_eq_params.get("galerkin", False) and self.shell:
+            raise RuntimeWarning("Galerkin has not yet been implemented in a shell")
 
     def setup_operator(self, field_modes: List[SphericalHarmonicMode],
                        flow_modes: Union[None, List[SphericalHarmonicMode]] = None, setup_eigen=False,

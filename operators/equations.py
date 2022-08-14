@@ -7,13 +7,11 @@ import scipy.sparse as scsp
 from operators import WorlandTransform, ChebyshevTransform
 from operators.chebyshev_recurrence import quicc_norm, inv_quicc_norm
 from operators.polynomials import SphericalHarmonicMode
-from utils import Timer
 import quicc.geometry.spherical.sphere_worland as geo
 import quicc.geometry.spherical.shell as sgeo
 import operators.quicc_supplements.sphere_worland as supp_geo
 import operators.quicc_supplements.shell as supp_sgeo
 import quicc.geometry.spherical.sphere_radius_boundary_worland as wbc
-import quicc.geometry.spherical.shell_radius_boundary as sbc
 from quicc.geometry.spherical.sphere_boundary_worland import no_bc
 
 
@@ -425,6 +423,7 @@ class InductionEquationShell(_BaseEquation):
         # set r factors to multiply to tor/pol component of the equation
         self.r_factor_tor = 3
         self.r_factor_pol = 2
+        self.galerkin = False
 
     def _get_ab_consts(self):
         return 0.5, 0.5 + self.ri
@@ -564,15 +563,17 @@ class MomentumEquationShell(_BaseEquation):
         return 0.5, 0.5 + self.ri
 
     def _set_bc(self):
+        a, b = self._get_ab_consts()
         if self.inviscid:
             self.bc = {'tor': no_bc(), 'pol': {0: 20}}
         else:
             if self.bc_type == 'no-slip':
                 self.bc = {"tor": {0: 20}, "pol": {0: 40}}
+                self.bc['pol']['c'] = {'a': a, 'b': b}
             if self.bc_type == 'stress-free':
                 self.bc = {"tor": {0: 22}, "pol": {0: 41}}
-        a, b = self._get_ab_consts()
-        self.bc['pol']['c'] = {'a': a, 'b': b}
+                self.bc['tor']['c'] = {'a': a, 'b': b}
+                self.bc['pol']['c'] = {'a': a, 'b': b}
 
     def lorentz1(self,
                  transform: ChebyshevTransform,
@@ -676,10 +677,8 @@ class MomentumEquationShell(_BaseEquation):
         nr, maxnl, m = self.res
         a, b = self._get_ab_consts()
         if self.inviscid:
-            # self._mass = scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
-            #                               geo.i2lapl(nr, maxnl, m, no_bc(), -1.0, with_sh_coeff='laplh', l_zero_fix='zero')))
-            raise NotImplementedError("inviscid not implemented")
-        # TODO
+            self._mass = scsp.block_diag((supp_sgeo.i2r3_nobc(nr, maxnl, m, a, b, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
+                                          supp_sgeo.i2r4lapl(nr, maxnl, m, a, b, no_bc(), -1.0, with_sh_coeff='laplh', l_zero_fix='zero')))
         else:
             self._mass = scsp.block_diag((sgeo.i2r3(nr, maxnl, m, a, b, no_bc(), with_sh_coeff='laplh', l_zero_fix='zero'),
                                           sgeo.i4r4lapl(nr, maxnl, m, a, b, no_bc(), -1.0, with_sh_coeff='laplh', l_zero_fix='zero')))
@@ -688,10 +687,8 @@ class MomentumEquationShell(_BaseEquation):
         nr, maxnl, m = self.res
         a, b = self._get_ab_consts()
         if self.inviscid:
-            # self._quasi_inverse = scsp.block_diag((supp_geo.i2_nobc(nr, maxnl, m, no_bc(), l_zero_fix='zero'),
-            #                                        geo.i2(nr, maxnl, m, no_bc(), l_zero_fix='zero')))
-            raise NotImplementedError("inviscid not implemented")
-        # TODO
+            self._quasi_inverse = scsp.block_diag((supp_sgeo.i2_nobc(nr, maxnl, m, a, b, no_bc(), l_zero_fix='zero'),
+                                                   sgeo.i2(nr, maxnl, m, a, b, no_bc(), l_zero_fix='zero')))
         else:
             self._quasi_inverse = scsp.block_diag((sgeo.i2(nr, maxnl, m, a, b, no_bc(), l_zero_fix='zero'),
                                                    supp_sgeo.i4(nr, maxnl, m, a, b, no_bc(), l_zero_fix='zero')))
@@ -712,17 +709,15 @@ class MomentumEquationShell(_BaseEquation):
         nr, maxnl, m = self.res
         a, b = self._get_ab_consts()
         if self.inviscid:
-            raise NotImplementedError("inviscid not implemented")
-            # self._coriolis = scsp.bmat([[supp_geo.i2_nobc(nr, maxnl, m, bc=self.bc['tor'], coeff=-1.0j*m, l_zero_fix='set'),
-            #                              supp_geo.i2coriolis_nobc(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero')],
-            #                             [geo.i2coriolis(nr, maxnl, m, bc=no_bc(), l_zero_fix='zero'),
-            #                              geo.i2lapl(nr, maxnl, m, bc=self.bc['pol'], coeff=1.0j*m, l_zero_fix='set')]], format='csc')
+            self._coriolis = scsp.bmat([[supp_sgeo.i2r3_nobc(nr, maxnl, m, a, b, bc=self.bc['tor'], coeff=-1.0j*m, l_zero_fix='set'),
+                                         supp_sgeo.i2r3coriolis_nobc(nr, maxnl, m, a, b, bc=no_bc(), l_zero_fix='zero')],
+                                        [supp_sgeo.i2r4coriolis(nr, maxnl, m, a, b, bc=no_bc(), l_zero_fix='zero'),
+                                         supp_sgeo.i2r4lapl(nr, maxnl, m, a, b, bc=self.bc['pol'], coeff=1.0j*m, l_zero_fix='set')]], format='csc')
         else:
-            # TODO implement i2r3coriolis
             self._coriolis = scsp.bmat([[sgeo.i2r3(nr, maxnl, m, a, b, bc=no_bc(), coeff=-1.0j*m, l_zero_fix='zero'),
-                               sgeo.i2r3coriolis(nr, maxnl, m, a, b, bc=no_bc(), l_zero_fix='zero')],
-                              [sgeo.i4r4coriolis(nr, maxnl, m, a, b, bc=no_bc(), l_zero_fix='zero'),
-                               sgeo.i4r4lapl(nr, maxnl, m, a, b, bc=no_bc(), coeff=1.0j*m, l_zero_fix='zero')]])
+                                         supp_sgeo.i2r3coriolis(nr, maxnl, m, a, b, bc=no_bc(), l_zero_fix='zero')],
+                                        [sgeo.i4r4coriolis(nr, maxnl, m, a, b, bc=no_bc(), l_zero_fix='zero'),
+                                         sgeo.i4r4lapl(nr, maxnl, m, a, b, bc=no_bc(), coeff=1.0j*m, l_zero_fix='zero')]])
 
     @property
     def mass(self):

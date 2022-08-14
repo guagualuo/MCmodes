@@ -82,7 +82,7 @@ class ChebyshevTransform:
     @staticmethod
     def _compute_block_unit(left_op, right_op, weight, factor_mat, transformer=None):
         weight = scsp.kron(factor_mat, weight)
-        if transformer:
+        if transformer is not None:
             return left_op.T @ weight @ right_op @ transformer
         else:
             return left_op.T @ weight @ right_op

@@ -12,6 +12,12 @@ s10 = SphericalHarmonicMode("pol", 1, 0, "17/100*Sqrt[4 pi / 3] Sin[pi r]")
 s20 = SphericalHarmonicMode("pol", 2, 0, "13/100*Sqrt[4 pi / 5] r Sin[pi r]")
 LJt10 = SphericalHarmonicMode("tor", 1, 0, "8.107929179422066 * r(1 - r^2)")
 LJs20 = SphericalHarmonicMode("pol", 2, 0, "1.193271237996972 * r^2 (1 - r^2)^2")
+s = SphericalHarmonicMode("pol", 1, 0, "17/100*Sqrt[4 pi / 3] Cos[pi r]")
+
+
+# m = 1
+# model = KinematicDynamo(nr, maxnl, m, ri=ri)
+# A, B = model.setup_operator(flow_modes=[s], setup_eigen=True, Rm=160)
 
 # case 1
 m = 1
