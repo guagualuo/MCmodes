@@ -32,28 +32,28 @@ def i2r3_nobc(nr, maxnl, m, a, b, bc, coeff = 1.0, with_sh_coeff = None, l_zero_
 
 
 def i2r4lapl(nr, maxnl, m, a, b, bc, coeff = 1.0, with_sh_coeff = None, l_zero_fix = False, restriction = None):
-    """Create a i2r3lapl radial operator kronecker with an identity"""
+    """Create a i2r4lapl radial operator kronecker with an identity, without tau lines"""
 
     return sgeo.make_sh_loperator(supp_rad.i2r4lapl, nr, maxnl, m, a, b, bc, coeff,
                                   with_sh_coeff=with_sh_coeff, l_zero_fix=l_zero_fix, restriction=restriction)
 
 
 def i2r3coriolis(nr, maxnl, m, a, b, bc, coeff = 1.0, with_sh_coeff = None, l_zero_fix = False, restriction = None):
-    """Create a i2r3 radial operator kronecker with coriolis Q term"""
+    """Create a i2r3coriolis radial operator kronecker with coriolis Q term"""
 
     return sgeo.make_sh_qoperator(rad.i2r2, supp_rad.i2r3d1, nr, maxnl, m, a, b, bc, coeff,
                                   with_sh_coeff = with_sh_coeff, l_zero_fix = l_zero_fix, restriction = restriction)
 
 
 def i2r3coriolis_nobc(nr, maxnl, m, a, b, bc, coeff = 1.0, with_sh_coeff = None, l_zero_fix = False, restriction = None):
-    """Create a i2r3 radial operator kronecker with coriolis Q term, without tau lines"""
+    """Create a i2r3coriolis radial operator kronecker with coriolis Q term, without tau lines"""
 
     return sgeo.make_sh_qoperator(supp_rad.i2r2_nobc, supp_rad.i2r3d1_nobc, nr, maxnl, m, a, b, bc, coeff,
                                   with_sh_coeff = with_sh_coeff, l_zero_fix = l_zero_fix, restriction = restriction)
 
 
 def i2r4coriolis(nr, maxnl, m, a, b, bc, coeff = 1.0, with_sh_coeff = None, l_zero_fix = False, restriction = None):
-    """Create a i2r4 radial operator kronecker with coriolis Q term"""
+    """Create a i2r4coriolis radial operator kronecker with coriolis Q term"""
 
     return sgeo.make_sh_qoperator(rad.i2r3, supp_rad.i2r4d1, nr, maxnl, m, a, b, bc, coeff,
                                   with_sh_coeff = with_sh_coeff, l_zero_fix = l_zero_fix, restriction = restriction)

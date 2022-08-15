@@ -149,7 +149,7 @@ def i2r3_nobc(nr, a, b, bc, coeff = 1.0):
 
 
 def i2r4lapl(nr, l, a, b, bc, coeff = 1.0):
-    """Create operator for 2nd integral of r^3 laplacian_l T_n(x)"""
+    """Create operator for 2nd integral of r^4 laplacian_l T_n(x)"""
     ns = np.arange(0, nr)
     offsets = np.arange(-4, 5)
     nzrow = 1
@@ -287,7 +287,7 @@ def i2r3d1_nobc(nr, a, b, bc, coeff=1.0):
 
 
 def i2r4d1(nr, a, b, bc, coeff=1.0):
-    """Create operator for 2nd integral of r^3 D_r T_n(x), without tau lines"""
+    """Create operator for 2nd integral of r^4 D_r T_n(x)"""
 
     ns = np.arange(0, nr)
     offsets = np.arange(-5, 6)
